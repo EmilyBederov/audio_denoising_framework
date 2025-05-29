@@ -1,0 +1,53 @@
+# Configuration for FTCRN-based Metric GAN for Hearing Aids
+name: ftcrn_metric_gan
+
+# Paths configuration
+paths:
+  clean_dir: '/content/drive/MyDrive/audio_data/clean'
+  noisy_dir: '/content/drive/MyDrive/audio_data/noisy'
+  audiogram_file: '/content/drive/MyDrive/HL_Audiograms.txt'
+  checkpoint_dir: '/content/drive/MyDrive/checkpoints/ftcrn_metric_gan'
+  log_dir: '/content/drive/MyDrive/logs/ftcrn_metric_gan'
+
+# Dataset configuration
+dataset:
+  batch_size: 32
+  num_workers: 4
+  pin_memory: true
+  shuffle: true
+  segment_length: 48000  # 3 seconds at 16kHz
+  sample_rate: 16000
+
+# Audio processing configuration
+audio:
+  n_fft: 512
+  hop_length: 256
+  win_length: 512
+  window_type: 'hann'
+  
+# Model configuration
+model:
+  generator:
+    name: 'FTCRN'
+  
+  discriminator:
+    name: 'MetricDiscriminator'
+    params:
+      ndf: 16
+      in_channel: 3  # Concatenated clean mag, est mag, and audiogram
+
+# Training configuration
+training:
+  epochs: 20
+  learning_rate:
+    generator: 0.0006
+    discriminator: 0.0006
+  loss_weights:
+    pmsqe: 1.0
+    pase: 0.25
+  
+# Logging and checkpointing
+logging:
+  log_interval: 100  # Log every N batches
+  save_checkpoint_interval: 1  # Save checkpoint every N epochs
+  keep_last_checkpoints: 5  # Number of checkpoints to keep
