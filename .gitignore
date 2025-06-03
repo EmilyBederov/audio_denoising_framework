@@ -1,7 +1,4 @@
 data/
-*.wav
-logs/
 outputs/
-*.pth
-outputs/*.pth
-outputs/**/*.pth
+__pycache__/
+logs/
