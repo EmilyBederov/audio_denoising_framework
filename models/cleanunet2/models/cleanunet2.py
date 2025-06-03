@@ -89,6 +89,11 @@ class CleanUNet2(nn.Module):
         )  # Shape: (batch_size, freq_bins, time_frames)
         # Get the phase from the noisy STFT
         phase_noisy = torch.angle(stft_noisy)
+
+        min_time_frames = min(denoised_spectrogram.shape[-1], phase_noisy.shape[-1])
+        denoised_spectrogram = denoised_spectrogram[..., :min_time_frames]
+        phase_noisy = phase_noisy[..., :min_time_frames]
+    
         # Reconstruct the complex spectrogram using denoised magnitude and noisy phase
         denoised_complex_spectrogram = denoised_spectrogram * torch.exp(1j * phase_noisy)
         # Perform ISTFT to reconstruct waveform
