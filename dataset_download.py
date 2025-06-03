@@ -22,8 +22,8 @@ dirs = {
     "train_noisy": os.path.join(DATA_ROOT, "training/noisy"),
     "eval_clean": os.path.join(DATA_ROOT, "evaluation/clean"),
     "eval_noisy": os.path.join(DATA_ROOT, "evaluation/noisy"),
-    "test_clean": os.path.join(TEST_DATA_ROOT, "test/clean"),
-    "test_noisy": os.path.join(TEST_DATA_ROOT, "test/noisy"),
+    "test_clean": os.path.join(TEST_DATA_ROOT, "28spk/clean"),
+    "test_noisy": os.path.join(TEST_DATA_ROOT, "28spk/noisy"),
 }
 
 for d in dirs.values():
@@ -81,15 +81,24 @@ def process_pairs(pairs, clean_dir, noisy_dir, csv_path, prefix="sample"):
 
     pd.DataFrame(rows).to_csv(csv_path, index=False)
 
-# Step 5: Process all sets
-print("Processing training set...")
-process_pairs(train_pairs, dirs["train_clean"], dirs["train_noisy"], CSV_TRAIN, "train")
+# Step 5: Process all sets (with checks for existing data)
+if os.path.exists(CSV_TRAIN) and len(glob.glob(os.path.join(dirs["train_clean"], "*.wav"))) > 0:
+    print("Training set already exists, skipping...")
+else:
+    print("Processing training set...")
+    process_pairs(train_pairs, dirs["train_clean"], dirs["train_noisy"], CSV_TRAIN, "train")
 
-print("Processing evaluation set...")
-process_pairs(eval_pairs, dirs["eval_clean"], dirs["eval_noisy"], CSV_EVAL, "eval")
+if os.path.exists(CSV_EVAL) and len(glob.glob(os.path.join(dirs["eval_clean"], "*.wav"))) > 0:
+    print("Evaluation set already exists, skipping...")
+else:
+    print("Processing evaluation set...")
+    process_pairs(eval_pairs, dirs["eval_clean"], dirs["eval_noisy"], CSV_EVAL, "eval")
 
-print("Processing test set (28spk)...")
-process_pairs(test_pairs, dirs["test_clean"], dirs["test_noisy"], CSV_TEST, "test")
+if os.path.exists(CSV_TEST) and len(glob.glob(os.path.join(dirs["test_clean"], "*.wav"))) > 0:
+    print("Test set already exists, skipping...")
+else:
+    print("Processing test set (28spk)...")
+    process_pairs(test_pairs, dirs["test_clean"], dirs["test_noisy"], CSV_TEST, "test")
 
 print(f"All done!")
 print(f"Training/Evaluation files saved in '{DATA_ROOT}/'")
