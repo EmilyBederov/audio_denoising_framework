@@ -11,10 +11,9 @@ random.seed(42)
 TARGET_SR = 16000
 SPLIT_RATIO = 0.9
 DATA_ROOT = "data"
-TEST_DATA_ROOT = "test_data"
 CSV_TRAIN = os.path.join(DATA_ROOT, "training_pairs_16khz.csv")
 CSV_EVAL = os.path.join(DATA_ROOT, "evaluation_pairs_16khz.csv")
-CSV_TEST = os.path.join(TEST_DATA_ROOT, "test_pairs_16khz.csv")
+CSV_TEST = os.path.join(DATA_ROOT, "testdata_pairs_16khz.csv")
 
 # Output directories
 dirs = {
@@ -22,8 +21,8 @@ dirs = {
     "train_noisy": os.path.join(DATA_ROOT, "training/noisy"),
     "eval_clean": os.path.join(DATA_ROOT, "evaluation/clean"),
     "eval_noisy": os.path.join(DATA_ROOT, "evaluation/noisy"),
-    "test_clean": os.path.join(TEST_DATA_ROOT, "28spk/clean"),
-    "test_noisy": os.path.join(TEST_DATA_ROOT, "28spk/noisy"),
+    "test_clean": os.path.join(DATA_ROOT, "testdata/clean"),
+    "test_noisy": os.path.join(DATA_ROOT, "testdata/noisy"),
 }
 
 for d in dirs.values():
@@ -95,15 +94,18 @@ else:
     process_pairs(eval_pairs, dirs["eval_clean"], dirs["eval_noisy"], CSV_EVAL, "eval")
 
 if os.path.exists(CSV_TEST) and len(glob.glob(os.path.join(dirs["test_clean"], "*.wav"))) > 0:
-    print("Test set already exists, skipping...")
+    print("Test dataset already exists, skipping...")
 else:
-    print("Processing test set (28spk)...")
+    print("Processing test dataset...")
     process_pairs(test_pairs, dirs["test_clean"], dirs["test_noisy"], CSV_TEST, "test")
 
 print(f"All done!")
-print(f"Training/Evaluation files saved in '{DATA_ROOT}/'")
-print(f"Test files saved in '{TEST_DATA_ROOT}/'")
+print(f"All files saved in '{DATA_ROOT}/' directory")
 print(f"Datasets:")
 print(f"  - Training pairs: {len(train_pairs)}")
 print(f"  - Evaluation pairs: {len(eval_pairs)}")
 print(f"  - Test pairs: {len(test_pairs)}")
+print(f"Structure:")
+print(f"  - {DATA_ROOT}/training/ (train set)")
+print(f"  - {DATA_ROOT}/evaluation/ (eval set)")
+print(f"  - {DATA_ROOT}/testdata/ (test set)")
