@@ -2,7 +2,6 @@
 """
 Real-time Audio Denoising Test Script using Original CleanUNet2 Implementation
 """
-
 import time
 import os
 import sys
@@ -11,20 +10,15 @@ import torchaudio
 import torchaudio.transforms as T
 from pathlib import Path
 
-# Add the models directory to path to import CleanUNet2
-current_dir = Path(__file__).parent
-models_dir = current_dir / "models" / "cleanunet2"
-sys.path.insert(0, str(models_dir))
-
 try:
-    # Try to disable audio playback for server environments
     import sounddevice as sd
     print("INFO: Audio playback available")
 except (ImportError, OSError) as e:
     print("INFO: Audio playback disabled (server environment)")
 
-# Import the ORIGINAL CleanUNet2 with proper defaults
-from models.cleanunet2.models.cleanunet2 import CleanUNet2
+# FIXED: Import from your existing models directory
+sys.path.insert(0, str(Path(__file__).parent))
+from models.cleanunet2.models.cleanunet2 import CleanUNet2  # Your existing file!
 
 def load_original_model_with_checkpoint(checkpoint_path, device, use_defaults=True):
     """
