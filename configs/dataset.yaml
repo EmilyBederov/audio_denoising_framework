@@ -1,0 +1,15 @@
+# configs/dataset.yaml
+# Audio processing parameters
+sample_rate: 16000
+n_fft: 1024
+hop_length: 256
+win_length: 1024
+frame_length: 0.032
+frame_shift: 0.016
+num_frames: 16
+segment_length: 32000  # 2 seconds at 16kHz (set to null for full audio)
+normalize: true
+
+# DataLoader parameters
+batch_size: 32
+num_workers: 4

@@ -1,0 +1,7 @@
+data/
+*.wav
+logs/
+outputs/
+*.pth
+outputs/*.pth
+outputs/**/*.pth

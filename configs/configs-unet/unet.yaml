@@ -1,0 +1,22 @@
+# configs/models/unet.yaml
+model_name: unet
+description: "Simple UNet for audio denoising"
+
+# Model parameters
+input_channels: 1
+output_channels: 1
+base_channels: 32
+depth: 3
+
+# STFT parameters
+sample_rate: 16000
+n_fft: 1024
+hop_length: 256
+win_length: 1024
+frame_length: 0.032  # in seconds
+frame_shift: 0.016   # in seconds
+num_frames: 16
+
+# Training parameters
+min_val: -9.188868273733446  # Normalization parameters
+max_val: -0.2012536819610933 # Based on dataset statistics

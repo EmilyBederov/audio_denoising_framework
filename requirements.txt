@@ -1,0 +1,154 @@
+# Core scientific computing
+numpy
+pandas
+matplotlib
+scipy
+scikit-learn
+tqdm
+
+# Configuration and data handling
+pyyaml
+omegaconf
+json5
+h5py
+pickle5
+joblib
+
+# PyTorch ecosystem (CPU/GPU compatible)
+torch
+torchaudio
+torchvision
+tensorboard
+tensorboardX
+
+# Audio processing and analysis
+soundfile
+librosa
+pystoi
+pesq
+resampy
+audioread
+pyworld
+pyroomacoustics
+
+# Audio augmentation
+audiomentations
+torch-audiomentations
+nlpaug
+
+# Machine learning utilities
+transformers
+accelerate
+datasets
+evaluate
+wandb
+mlflow
+
+# Signal processing
+pywavelets
+spectrum
+padasip
+python_speech_features
+
+# Metrics and evaluation
+mir_eval
+museval
+nussl
+
+# File handling and I/O
+lmdb
+zarr
+kagglehub
+
+# Configuration management
+hydra-core
+python-dotenv
+configargparse
+
+# Cloud storage and data download
+gdown
+google-cloud-storage
+boto3
+azure-storage-blob
+
+# Visualization
+seaborn
+plotly
+bokeh
+altair
+ipywidgets
+
+# Jupyter and development
+jupyter
+jupyterlab
+ipykernel
+notebook
+
+# Code quality and formatting
+black
+flake8
+isort
+mypy
+pre-commit
+
+# Testing
+pytest
+pytest-cov
+pytest-mock
+
+# Profiling and debugging
+line_profiler
+memory_profiler
+py-spy
+
+# Parallel processing
+multiprocessing-logging
+pathos
+ray
+
+# Web and API
+requests
+urllib3
+fastapi
+uvicorn
+
+# Database
+sqlalchemy
+
+# Image processing (for spectrograms)
+pillow
+opencv-python
+imageio
+
+# Optimization
+optuna
+hyperopt
+
+# Time series
+tslearn
+dtw-python
+
+# Math and statistics
+statsmodels
+sympy
+numba
+
+# Memory optimization
+psutil
+pympler
+
+# Logging
+loguru
+rich
+
+# Audio file format support
+mutagen
+tinytag
+
+# Environment and system
+python-magic
+distro
+
+# Optional GPU acceleration packages (install only if GPU available)
+# cupy-cuda11x
+# cudf

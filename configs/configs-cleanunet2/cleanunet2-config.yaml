@@ -1,0 +1,40 @@
+network_config:
+  # A100-optimized CleanUNet parameters
+  cleanunet_input_channels: 1
+  cleanunet_output_channels: 1
+  cleanunet_channels_H: 48
+  cleanunet_max_H: 512
+  cleanunet_encoder_n_layers: 6
+  cleanunet_kernel_size: 4
+  cleanunet_stride: 2
+  cleanunet_tsfm_n_layers: 3
+  cleanunet_tsfm_n_head: 8
+  cleanunet_tsfm_d_model: 256
+  cleanunet_tsfm_d_inner: 1024
+
+# Fixed: Use your local 16kHz data paths
+trainset:
+  csv_path: "data/training_pairs_16khz.csv"
+
+valset:
+  csv_path: "data/evaluation_pairs_16khz.csv"
+
+# A100-optimized training settings
+sample_rate: 16000
+batch_size: 8
+num_workers: 4
+epochs: 25
+learning_rate: 0.0002
+weight_decay: 0.0001
+loss_type: l1
+save_path: "outputs"
+
+# Audio processing settings
+n_fft: 1024
+hop_length: 256
+win_length: 1024
+power: 1.0
+max_length: 65536
+
+# Optional settings
+augmentations: null
