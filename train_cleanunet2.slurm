@@ -1,36 +1,48 @@
 #!/bin/bash
-#SBATCH --job-name=cleanunet2
-#SBATCH --partition=work
+#SBATCH --job-name=cleanunet2_train
+#SBATCH --output=logs/train_cleanunet2_%j.out
+#SBATCH --error=logs/train_cleanunet2_%j.err
+#SBATCH --time=24:00:00
+#SBATCH --partition=gpu
 #SBATCH --gres=gpu:1
-#SBATCH --time=08:00:00
-#SBATCH --output=logs/output_%j.txt
-#SBATCH --error=logs/error_%j.txt
+#SBATCH --cpus-per-task=8
+#SBATCH --mem=64G
+#SBATCH --nodes=1
+#SBATCH --ntasks-per-node=1
 
-echo "=== JOB STARTED ==="
-echo "Job ID: $SLURM_JOB_ID"
-echo "Node: $SLURMD_NODENAME" 
-echo "Date: $(date)"
+# Create logs directory if it doesn't exist
+mkdir -p logs
 
-# Navigate to your project
-cd /home/emilybederov/work/audio_denoising_framework-main
-
-# Activate your conda environment using full path
+# Load conda environment
 source /home/emilybederov/miniconda3/etc/profile.d/conda.sh
 conda activate denoise_env
 
-echo "=== ENVIRONMENT CHECK ==="
-which python
-python -c "import torch; print(f'CUDA available: {torch.cuda.is_available()}')"
+# Navigate to project directory
+cd /home/emilybederov/work/audio_denoising_framework-main
+
+# Print environment info
+echo "Starting CleanUNet2 training at: $(date)"
+echo "CUDA_VISIBLE_DEVICES: $CUDA_VISIBLE_DEVICES"
+echo "GPU Info:"
 nvidia-smi
 
-echo "=== STARTING TRAINING ==="
+# Set Python path
+export PYTHONPATH=$PWD:$PYTHONPATH
+
+# Training command
+echo "Starting training..."
 python run.py \
     --config configs/configs-cleanunet2/cleanunet2-config.yaml \
     --model cleanunet2 \
     --mode train \
-    --batch_size 4
+    --device cuda
 
-echo "=== TRAINING COMPLETED ==="
-echo "Date: $(date)"
-echo "Models saved in:"
-ls -la outputs/cleanunet2/ || echo "No outputs directory found"
+echo "Training completed at: $(date)"
+
+# Check if model was saved
+if [ -d "outputs" ]; then
+    echo "Training outputs:"
+    find outputs -name "*.pth" -o -name "*.pkl" | head -10
+else
+    echo "No outputs directory found"
+fi
