@@ -1,4 +1,4 @@
-# core/training_manager.py
+# core/training_manager.py6xy66x
 import os
 import torch
 import torch.nn as nn
@@ -44,7 +44,7 @@ class TrainingManager:
         # ADD: Verify model is on GPU
         print(f"Model device: {next(self.model.parameters()).device}")
         
-        # Configure metrics
+        # Configure metrics - FIXED with proper error handling
         self.metrics = {
             'pesq': calculate_pesq,
             'stoi': calculate_stoi,
@@ -245,6 +245,8 @@ class TrainingManager:
         Returns:
             Path to output file
         """
+        import torchaudio.transforms as T
+        
         # Load audio
         waveform, sample_rate = torchaudio.load(input_path)
         
@@ -259,22 +261,42 @@ class TrainingManager:
         if waveform.shape[0] > 1:
             waveform = torch.mean(waveform, dim=0, keepdim=True)
         
-        # Move to device
-        waveform = waveform.to(self.device)
+        # Add batch dimension and move to device
+        waveform = waveform.unsqueeze(0).to(self.device)  # [1, 1, T]
+        
+        # Compute spectrogram (same as training)
+        spec_transform = T.Spectrogram(
+            n_fft=self.config.get('n_fft', 1024),
+            hop_length=self.config.get('hop_length', 256),
+            win_length=self.config.get('win_length', 1024),
+            power=self.config.get('power', 1.0),
+            normalized=True,
+            center=False
+        ).to(self.device)
+        
+        spectrogram = spec_transform(waveform.squeeze(0))  # [F, T]
+        spectrogram = spectrogram.unsqueeze(0)  # [1, F, T]
         
         # Run inference
         self.model.eval()
         with torch.no_grad():
-            enhanced = self.model(waveform)
+            enhanced = self.model(waveform, spectrogram)
+            
+            # Handle tuple output (enhanced_audio, enhanced_spec)
+            if isinstance(enhanced, tuple):
+                enhanced = enhanced[0]  # Get the audio output
         
         # Generate output path if not provided
         if output_path is None:
             input_path_obj = Path(input_path)
             output_path = input_path_obj.parent / f"{input_path_obj.stem}_enhanced{input_path_obj.suffix}"
         
+        # Ensure output directory exists
+        os.makedirs(os.path.dirname(output_path), exist_ok=True)
+        
         # Save enhanced audio
-        enhanced = enhanced.cpu()
-        torchaudio.save(output_path, enhanced, sample_rate)
+        enhanced = enhanced.cpu().squeeze()
+        torchaudio.save(output_path, enhanced.unsqueeze(0), sample_rate)
         
         return str(output_path)
     
