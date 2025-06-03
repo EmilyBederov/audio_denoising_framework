@@ -1,175 +1,277 @@
+#!/usr/bin/env python3
+"""
+Real-time Audio Denoising Test Script using Original CleanUNet2 Implementation
+"""
+
 import time
 import os
+import sys
 import torch
 import torchaudio
 import torchaudio.transforms as T
-import yaml
 from pathlib import Path
-import sys
 
-# Add your project to path
-sys.path.append(str(Path(__file__).parent))
-from core.model_factory import ModelFactory
+# Add the models directory to path to import CleanUNet2
+current_dir = Path(__file__).parent
+models_dir = current_dir / "models" / "cleanunet2"
+sys.path.insert(0, str(models_dir))
 
-# --- CONFIG ---
-wav_path = "data/noisy/p234_007.wav"  # Change this to any noisy audio file you have
-output_path = "data/denoised/p234_007.wav"
-model_path = "outputs/cleanunet2/cleanunet2_best.pth"  # YOUR TRAINED MODEL!
-config_path = "configs/configs-cleanunet2/cleanunet2-config.yaml"
-sample_rate = 16000
+try:
+    # Try to disable audio playback for server environments
+    import sounddevice as sd
+    print("INFO: Audio playback available")
+except (ImportError, OSError) as e:
+    print("INFO: Audio playback disabled (server environment)")
 
-print("=== TESTING YOUR TRAINED CLEANUNET2 MODEL ===")
+# Import the ORIGINAL CleanUNet2 with proper defaults
+from models.cleanunet2.models.cleanunet2 import CleanUNet2
 
-# --- Load model using your training framework ---
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-print(f"Using device: {device}")
-
-# Load config (same as training)
-with open(config_path, 'r') as f:
-    config = yaml.safe_load(f)
-
-# Create model using your framework (ensures consistency)
-model = ModelFactory.create_model('cleanunet2', config)
-model.to(device)
-
-# Load your trained weights
-if os.path.exists(model_path):
-    print(f"Loading trained model from: {model_path}")
-    checkpoint = torch.load(model_path, map_location=device)
+def load_original_model_with_checkpoint(checkpoint_path, device, use_defaults=True):
+    """
+    Load the original CleanUNet2 model with checkpoint handling
     
-    # Debug: Check what's in the checkpoint
-    print(f"Checkpoint keys: {list(checkpoint.keys())}")
+    Args:
+        checkpoint_path: Path to the trained model checkpoint
+        device: Device to load the model on
+        use_defaults: If True, use original paper defaults. If False, load from config.
+    """
+    print(f"Loading original CleanUNet2 model...")
     
-    # Handle different checkpoint formats
-    if 'model_state_dict' in checkpoint:
-        model.load_state_dict(checkpoint['model_state_dict'])
-        print(f"Loaded from epoch: {checkpoint.get('epoch', 'unknown')}")
-        print(f"Training loss: {checkpoint.get('loss', 'unknown'):.6f}")
-    elif 'state_dict' in checkpoint:
-        # Add 'model.' prefix to match wrapper structure
-        state_dict = checkpoint['state_dict']
+    if use_defaults:
+        print("✅ Using original paper defaults")
+        # Use original defaults (paper configuration) - NO PARAMETERS NEEDED!
+        model = CleanUNet2().to(device)
+    else:
+        # Custom configuration (if you want to override defaults)
+        model = CleanUNet2(
+            # Only specify if you want to override the perfect defaults
+            # cleanunet_channels_H=64,      # Already default
+            # cleanunet_max_H=768,          # Already default
+            # etc...
+        ).to(device)
+    
+    print(f"Model created with original defaults")
+    
+    # Load checkpoint with prefix handling
+    print(f"Loading checkpoint from: {checkpoint_path}")
+    
+    try:
+        checkpoint = torch.load(checkpoint_path, map_location=device)
+        
+        # Handle different checkpoint formats and strip 'model.' prefix if present
+        if isinstance(checkpoint, dict):
+            if 'state_dict' in checkpoint:
+                state_dict = checkpoint['state_dict']
+            elif 'model' in checkpoint:
+                state_dict = checkpoint['model']
+            else:
+                state_dict = checkpoint
+        else:
+            state_dict = checkpoint
+            
+        # Strip 'model.' prefix from keys if present
         new_state_dict = {}
         for key, value in state_dict.items():
-            new_key = f"model.{key}"
-            new_state_dict[new_key] = value
+            if key.startswith('model.'):
+                new_key = key[6:]  # Remove 'model.' prefix
+                new_state_dict[new_key] = value
+            else:
+                new_state_dict[key] = value
         
-        model.load_state_dict(new_state_dict)
-        print(f"Loaded from epoch: {checkpoint.get('epoch', 'unknown')}")
-        print(f"Training loss: {checkpoint.get('loss', 'unknown'):.6f}")
-    else:
-        # Direct state dict
-        model.load_state_dict(checkpoint)
-        print("Loaded direct state dict")
-else:
-    print(f"ERROR: Model not found at {model_path}")
-    print("Available models:")
-    model_dir = Path(model_path).parent
-    if model_dir.exists():
-        for f in model_dir.glob("*.pth"):
-            print(f"  {f}")
-    exit(1)
-
-model.eval()
-
-# --- Load audio ---
-if not os.path.exists(wav_path):
-    print(f"ERROR: Audio file not found: {wav_path}")
-    print("Please provide a valid noisy audio file.")
-    print("You can use any .wav file or pick one from your validation data.")
-    exit(1)
-
-print(f"Loading audio: {wav_path}")
-waveform, sr = torchaudio.load(wav_path)
-original_duration = waveform.shape[-1] / sr
-print(f"Original audio: {waveform.shape}, {sr} Hz, {original_duration:.2f} sec")
-
-if sr != sample_rate:
-    print(f"Resampling from {sr} Hz to {sample_rate} Hz")
-    waveform = torchaudio.functional.resample(waveform, sr, sample_rate)
-
-if waveform.shape[0] > 1:  # Convert stereo to mono
-    print("Converting stereo to mono")
-    waveform = waveform.mean(dim=0, keepdim=True)
-
-waveform = waveform.unsqueeze(0).to(device)  # [1, 1, T]
-duration = waveform.shape[-1] / sample_rate
-
-# --- Compute spectrogram using SAME parameters as training ---
-spec_transform = T.Spectrogram(
-    n_fft=config.get('n_fft', 1024),
-    hop_length=config.get('hop_length', 256),
-    win_length=config.get('win_length', 1024),
-    power=config.get('power', 1.0),  # Match training exactly
-    normalized=True,
-    center=False,  # Match training configuration
-    return_complex=False
-).to(device)
-
-spectrogram = spec_transform(waveform.squeeze(0))  # [F, T]
-print(f"Spectrogram shape: {spectrogram.shape}")
-spectrogram = spectrogram.unsqueeze(0)  # [1, F, T]
-
-# --- Warm-up ---
-print("Warming up model...")
-with torch.no_grad():
-    try:
-        _ = model(waveform, spectrogram)
-        print("✓ Warm-up successful")
+        # Load state dict with error handling
+        try:
+            model.load_state_dict(new_state_dict, strict=True)
+            print("✅ Model loaded successfully with strict=True")
+        except RuntimeError as e:
+            print(f"WARNING: Strict loading failed: {e}")
+            print("Attempting to load with strict=False...")
+            model.load_state_dict(new_state_dict, strict=False)
+            print("✅ Model loaded with strict=False (some parameters may be missing)")
+            
     except Exception as e:
-        print(f"✗ Warm-up failed: {e}")
-        exit(1)
+        print(f"ERROR: Failed to load checkpoint: {e}")
+        raise
+        
+    model.eval()
+    return model
 
-# --- Timed inference ---
-print("Starting inference...")
-start = time.time()
-with torch.no_grad():
-    output = model(waveform, spectrogram)
-    # Handle tuple output (enhanced_audio, enhanced_spec)
-    if isinstance(output, tuple):
-        print(f"Model returned a tuple with {len(output)} elements")
-        denoised = output[0]  # First element is the enhanced audio
+def run_inference_test():
+    """
+    Run audio denoising inference test using original CleanUNet2
+    """
+    print("🎵 Original CleanUNet2 Audio Denoising Test")
+    print("=" * 60)
+    
+    # --- Configuration ---
+    MODEL_PATH = "outputs/cleanunet2/cleanunet2_best.pth"
+    TEST_AUDIO_DIR = "data/testdata/noisy"
+    OUTPUT_DIR = "data/testdata/enhanced_original"
+    SAMPLE_RATE = 16000
+    
+    # Audio processing parameters (matching original implementation)
+    N_FFT = 1024
+    HOP_LENGTH = 256
+    WIN_LENGTH = 1024
+    POWER = 1.0
+    
+    print(f"Model path: {MODEL_PATH}")
+    print(f"Test audio directory: {TEST_AUDIO_DIR}")
+    print(f"Output directory: {OUTPUT_DIR}")
+    
+    # Create output directory
+    os.makedirs(OUTPUT_DIR, exist_ok=True)
+    
+    # Count test files
+    test_files = []
+    if os.path.exists(TEST_AUDIO_DIR):
+        test_files = [f for f in os.listdir(TEST_AUDIO_DIR) if f.endswith(('.wav', '.flac', '.mp3'))]
+    
+    print(f"Number of samples: {len(test_files)}")
+    print("=" * 60)
+    
+    # --- Device Setup ---
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    print(f"Using device: {device}")
+    
+    # --- Model Setup ---
+    # Load the ORIGINAL CleanUNet2 with paper defaults
+    try:
+        model = load_original_model_with_checkpoint(MODEL_PATH, device, use_defaults=True)
+        print("✅ Original CleanUNet2 loaded and set to evaluation mode")
+    except Exception as e:
+        print(f"❌ ERROR: {e}")
+        return
+    
+    # --- Audio Processing Setup ---
+    # Spectrogram transform (matching original implementation)
+    spec_transform = T.Spectrogram(
+        n_fft=N_FFT,
+        hop_length=HOP_LENGTH,
+        win_length=WIN_LENGTH,
+        power=POWER,
+        normalized=True,
+        center=False  # Match original implementation
+    ).to(device)
+    
+    print(f"Spectrogram config: n_fft={N_FFT}, hop_length={HOP_LENGTH}, power={POWER}")
+    
+    # --- Test Files ---
+    if test_files:
+        print(f"\n🎵 Processing {len(test_files)} test files...")
+        
+        total_time = 0
+        total_duration = 0
+        
+        for i, filename in enumerate(test_files):
+            input_path = os.path.join(TEST_AUDIO_DIR, filename)
+            output_path = os.path.join(OUTPUT_DIR, f"enhanced_{filename}")
+            
+            try:
+                elapsed, duration = process_audio_file(
+                    input_path, output_path, model, spec_transform, 
+                    device, SAMPLE_RATE
+                )
+                
+                total_time += elapsed
+                total_duration += duration
+                
+                rtf = elapsed / duration if duration > 0 else float('inf')
+                print(f"  [{i+1:2d}/{len(test_files)}] {filename}: "
+                      f"{elapsed:.3f}s / {duration:.2f}s (RTF: {rtf:.3f})")
+                      
+            except Exception as e:
+                print(f"  [{i+1:2d}/{len(test_files)}] {filename}: ERROR - {e}")
+        
+        # Summary
+        if total_duration > 0:
+            avg_rtf = total_time / total_duration
+            print(f"\n📊 Summary:")
+            print(f"  Total inference time: {total_time:.3f}s")
+            print(f"  Total audio duration: {total_duration:.2f}s") 
+            print(f"  Average RTF: {avg_rtf:.4f}")
+            print(f"  Performance: {'✅ Real-time capable' if avg_rtf < 1.0 else '❌ Too slow for real-time'}")
+    
     else:
-        denoised = output
+        # Test with synthetic audio
+        print("No test files found. Creating synthetic test...")
+        
+        duration_sec = 3.0
+        t = torch.linspace(0, duration_sec, int(SAMPLE_RATE * duration_sec))
+        clean_signal = torch.sin(2 * 3.14159 * 440 * t)  # 440 Hz tone
+        noise = torch.randn_like(clean_signal) * 0.1
+        noisy_signal = clean_signal + noise
+        
+        # Save synthetic test file
+        test_input = os.path.join(OUTPUT_DIR, "synthetic_noisy.wav")
+        torchaudio.save(test_input, noisy_signal.unsqueeze(0), SAMPLE_RATE)
+        
+        # Process synthetic file
+        test_output = os.path.join(OUTPUT_DIR, "synthetic_enhanced.wav")
+        elapsed, duration = process_audio_file(
+            test_input, test_output, model, spec_transform, device, SAMPLE_RATE
+        )
+        
+        rtf = elapsed / duration
+        print(f"Synthetic test: {elapsed:.3f}s / {duration:.2f}s (RTF: {rtf:.3f})")
+        print(f"Performance: {'✅ Real-time capable' if rtf < 1.0 else '❌ Too slow for real-time'}")
 
-if device.type == "cuda":
-    torch.cuda.synchronize()
-end = time.time()
+def process_audio_file(input_path, output_path, model, spec_transform, device, sample_rate):
+    """
+    Process a single audio file through the original denoising model
+    """
+    # Load audio
+    waveform, sr = torchaudio.load(input_path)
+    
+    # Resample if necessary
+    if sr != sample_rate:
+        resampler = torchaudio.transforms.Resample(sr, sample_rate)
+        waveform = resampler(waveform)
+    
+    # Convert to mono if stereo
+    if waveform.shape[0] > 1:
+        waveform = waveform.mean(dim=0, keepdim=True)
+    
+    # Calculate duration
+    duration = waveform.shape[-1] / sample_rate
+    
+    # Move to device and add batch dimension
+    waveform = waveform.unsqueeze(0).to(device)  # [1, 1, T]
+    
+    # Compute spectrogram (matching original implementation)
+    spectrogram = spec_transform(waveform.squeeze(0))  # [F, T]
+    spectrogram = spectrogram.unsqueeze(0).to(device)  # [1, F, T]
+    
+    # Run inference with timing
+    torch.cuda.synchronize() if device.type == "cuda" else None
+    start_time = time.time()
+    
+    with torch.no_grad():
+        # Original CleanUNet2 returns (enhanced_audio, enhanced_spec)
+        enhanced_audio, enhanced_spec = model(waveform, spectrogram)
+    
+    torch.cuda.synchronize() if device.type == "cuda" else None
+    end_time = time.time()
+    
+    # Save enhanced audio
+    enhanced_audio = enhanced_audio.squeeze().cpu().clamp(-1, 1)
+    os.makedirs(os.path.dirname(output_path), exist_ok=True)
+    torchaudio.save(output_path, enhanced_audio.unsqueeze(0), sample_rate)
+    
+    elapsed = end_time - start_time
+    return elapsed, duration
 
-# --- Save output ---
-print(f"Denoised output shape: {denoised.shape}")
-print(f"Denoised range: [{denoised.min():.4f}, {denoised.max():.4f}]")
+def main():
+    """
+    Main function with error handling
+    """
+    try:
+        run_inference_test()
+    except KeyboardInterrupt:
+        print("\n👋 Test interrupted by user")
+    except Exception as e:
+        print(f"\n❌ Test failed with error: {e}")
+        import traceback
+        traceback.print_exc()
 
-# Audio should already be clipped to [-1, 1] by your wrapper
-denoised_cpu = denoised.squeeze().cpu()
-original_cpu = waveform.squeeze().cpu()
-
-# Create output directory
-os.makedirs(os.path.dirname(output_path), exist_ok=True)
-
-# Save both original and denoised for comparison
-torchaudio.save(output_path, denoised_cpu.unsqueeze(0), sample_rate)
-original_path = output_path.replace('.wav', '_original.wav')
-torchaudio.save(original_path, original_cpu.unsqueeze(0), sample_rate)
-
-# --- RTF calculation ---
-elapsed = end - start
-rtf = elapsed / duration
-
-print(f"\n=== RESULTS ===")
-print(f"✓ Original saved: {original_path}")
-print(f"✓ Denoised saved: {output_path}")
-print(f"⏱  Inference time: {elapsed:.4f} sec")
-print(f"🎵 Audio duration: {duration:.2f} sec")
-print(f"🚀 Real-Time Factor (RTF): {rtf:.4f}")
-
-if rtf < 1.0:
-    print(f"✅ Real-time capable! ({1/rtf:.1f}x faster than real-time)")
-else:
-    print(f"❌ Too slow for real-time ({rtf:.1f}x slower than real-time)")
-
-print(f"\n=== NEXT STEPS ===")
-print(f"1. Download both files to listen:")
-print(f"   scp emilybederov@dgx-master:{os.path.abspath(original_path)} ./")
-print(f"   scp emilybederov@dgx-master:{os.path.abspath(output_path)} ./")
-print(f"2. Compare the original (noisy) vs denoised audio!")
-print(f"3. Your CleanUNet2 model is working! 🎉")
+if __name__ == "__main__":
+    main()

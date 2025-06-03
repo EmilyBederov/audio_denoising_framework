@@ -9,9 +9,9 @@ class ModelFactory:
     
     MODEL_MAPPING = {
         'cleanunet2': 'models.cleanunet2.cleanunet2_wrapper.CleanUNet2Wrapper',
+        'cleanunet2_original': 'models.cleanunet2.cleanunet2_wrapper.CleanUNet2Wrapper',  # Use original implementation
         'unet': 'models.unet.unet_wrapper.UNetWrapper',
         'ftcrngan': 'models.ftcrngan.ftcrngan_wrapper.FTCRNGANWrapper',
-        # Add other models as needed
     }
     
     @classmethod
@@ -41,7 +41,7 @@ class ModelFactory:
         module = importlib.import_module(module_path)
         model_wrapper_class = getattr(module, class_name)
         
-        # Get the model class
+        # Get the model class (for cleanunet2, we use the original implementation)
         model_class = cls._get_model_class(model_name)
         
         # Create and return the model wrapper
@@ -50,16 +50,14 @@ class ModelFactory:
     @staticmethod
     def _get_model_class(model_name: str):
         """Get the actual model class for the given model name"""
-        if model_name == 'cleanunet2':
-            # Fixed import path to match your directory structure
+        if model_name in ['cleanunet2', 'cleanunet2_original']:
+            # Use the ORIGINAL CleanUNet2 implementation
             from models.cleanunet2.models.cleanunet2 import CleanUNet2
             return CleanUNet2
         elif model_name == 'unet':
-            # Fixed to match directory structure (assuming similar pattern)
             from models.unet.models.unet import UNet
             return UNet
         elif model_name == 'ftcrngan':
-            # Fixed to match directory structure (assuming similar pattern)
             from models.ftcrngan.models.ftcrngan import FTCRNGAN
             return FTCRNGAN
         else:
@@ -68,13 +66,17 @@ class ModelFactory:
     @staticmethod
     def load_model_config(model_name: str):
         """Load model configuration from YAML file"""
-        # Fixed config path to match your actual config structure
-        config_path = Path(f'configs/configs-{model_name}/{model_name}-config.yaml')
-        if not config_path.exists():
-            # Fallback to simpler path structure
-            config_path = Path(f'configs/{model_name}.yaml')
-            if not config_path.exists():
-                raise FileNotFoundError(f"Config not found at: configs/configs-{model_name}/{model_name}-config.yaml or configs/{model_name}.yaml")
-            
-        with open(config_path, 'r') as f:
-            return yaml.safe_load(f)
+        # Try different config naming patterns
+        config_paths = [
+            Path(f'configs/configs-{model_name}/{model_name}-original-config.yaml'),
+            Path(f'configs/configs-{model_name}/{model_name}-config.yaml'),
+            Path(f'configs/{model_name}.yaml'),
+            Path(f'configs/{model_name}-original.yaml')
+        ]
+        
+        for config_path in config_paths:
+            if config_path.exists():
+                with open(config_path, 'r') as f:
+                    return yaml.safe_load(f)
+        
+        raise FileNotFoundError(f"Config not found for {model_name}. Tried: {[str(p) for p in config_paths]}")

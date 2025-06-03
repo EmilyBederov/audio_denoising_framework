@@ -25,43 +25,24 @@ class WaveformConditioner(nn.Module):
 # CleanUNet2 (Hybrid Model)
 class CleanUNet2(nn.Module):
     def __init__(self, 
-            # cleanunet_input_channels=1,
-            # cleanunet_output_channels=1,
-            # cleanunet_channels_H=64,
-            # cleanunet_max_H=768,
-            # cleanunet_encoder_n_layers=8,
-            # cleanunet_kernel_size=4,
-            # cleanunet_stride=2,
-            # cleanunet_tsfm_n_layers=5, 
-            # cleanunet_tsfm_n_head=8,
-            # cleanunet_tsfm_d_model=512, 
-            # cleanunet_tsfm_d_inner=2048,
-            # cleanspecnet_input_channels=513, 
-            # cleanspecnet_num_conv_layers=5, 
-            # cleanspecnet_kernel_size=4, 
-            # cleanspecnet_stride=1,
-            # cleanspecnet_num_attention_layers=5, 
-            # cleanspecnet_num_heads=8, 
-            # cleanspecnet_hidden_dim=512, 
-            # cleanspecnet_dropout=0.1):
             cleanunet_input_channels=1,
             cleanunet_output_channels=1,
-            cleanunet_channels_H=32,            # Reduced from 64
-            cleanunet_max_H=256,                # Reduced from 768
-            cleanunet_encoder_n_layers=5,       # Reduced from 8
+            cleanunet_channels_H=64,
+            cleanunet_max_H=768,
+            cleanunet_encoder_n_layers=8,
             cleanunet_kernel_size=4,
             cleanunet_stride=2,
-            cleanunet_tsfm_n_layers=2,          # Reduced from 5
-            cleanunet_tsfm_n_head=4,            # Reduced from 8
-            cleanunet_tsfm_d_model=128,         # Reduced from 512
-            cleanunet_tsfm_d_inner=512,         # Reduced from 2048
+            cleanunet_tsfm_n_layers=5, 
+            cleanunet_tsfm_n_head=8,
+            cleanunet_tsfm_d_model=512, 
+            cleanunet_tsfm_d_inner=2048,
             cleanspecnet_input_channels=513, 
-            cleanspecnet_num_conv_layers=3,     # Reduced from 5
-            cleanspecnet_kernel_size=3,         # Reduced from 4
+            cleanspecnet_num_conv_layers=5, 
+            cleanspecnet_kernel_size=4, 
             cleanspecnet_stride=1,
-            cleanspecnet_num_attention_layers=2, # Reduced from 5
-            cleanspecnet_num_heads=4,           # Reduced from 8
-            cleanspecnet_hidden_dim=128,        # Reduced from 512
+            cleanspecnet_num_attention_layers=5, 
+            cleanspecnet_num_heads=8, 
+            cleanspecnet_hidden_dim=512, 
             cleanspecnet_dropout=0.1):
 
         super(CleanUNet2, self).__init__()
@@ -123,29 +104,12 @@ class CleanUNet2(nn.Module):
         return reconstructed_waveform
     
 
-    # def forward(self, noisy_waveform, noisy_spectrogram):
-    #     denoised_spectrogram = self.clean_spec_net(noisy_spectrogram)
-    #     reconstructed_waveform = self._reconstruct_waveform(noisy_waveform, denoised_spectrogram)
-    #     concat_waveform = torch.cat((noisy_waveform, reconstructed_waveform), dim=1)
-    #     concat_waveform = self.WaveformConditioner(concat_waveform)
-    #     denoised_waveform = self.clean_unet(concat_waveform)
-    #     return denoised_waveform, denoised_spectrogram
-    # Fix for models/cleanunet2.py
-# Just replace the forward method with this patched version:
-
     def forward(self, noisy_waveform, noisy_spectrogram):
-        # Fix for dimension issue: handle 4D spectrogram input
-        if noisy_spectrogram.dim() == 4 and noisy_spectrogram.size(1) == 1:
-            # Remove the channel dimension (squeeze dim 1)
-            noisy_spectrogram = noisy_spectrogram.squeeze(1)
-        
-        # Original code continues unchanged from here
         denoised_spectrogram = self.clean_spec_net(noisy_spectrogram)
         reconstructed_waveform = self._reconstruct_waveform(noisy_waveform, denoised_spectrogram)
         concat_waveform = torch.cat((noisy_waveform, reconstructed_waveform), dim=1)
         concat_waveform = self.WaveformConditioner(concat_waveform)
         denoised_waveform = self.clean_unet(concat_waveform)
-        
         return denoised_waveform, denoised_spectrogram
 
 
@@ -169,5 +133,4 @@ if __name__ == '__main__':
     loss = torch.nn.MSELoss()(clean_waveform, denoised_waveform)
     loss.backward()
     print(loss.item())
-
 

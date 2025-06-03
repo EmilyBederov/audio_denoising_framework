@@ -107,4 +107,3 @@ if __name__ == '__main__':
     output = model(input_data)
     print(f"Input shape: {input_data.shape}")
     print(f"Output shape: {output.shape}")
-

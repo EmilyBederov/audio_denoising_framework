@@ -1,31 +1,47 @@
 network_config:
-  # A100-optimized CleanUNet parameters
+  # Use original CleanUNet2 defaults (paper configuration)
+  use_original_defaults: true
+  
+  # All parameters below are optional - original defaults will be used if not specified
+  # These are here for reference (original paper values):
+  
+  # CleanUNet parameters (original defaults)
   cleanunet_input_channels: 1
   cleanunet_output_channels: 1
-  cleanunet_channels_H: 48
-  cleanunet_max_H: 512
-  cleanunet_encoder_n_layers: 6
+  cleanunet_channels_H: 64              # Original paper default
+  cleanunet_max_H: 768                  # Original paper default  
+  cleanunet_encoder_n_layers: 8         # Original paper default
   cleanunet_kernel_size: 4
   cleanunet_stride: 2
-  cleanunet_tsfm_n_layers: 3
+  cleanunet_tsfm_n_layers: 5            # Original paper default
   cleanunet_tsfm_n_head: 8
-  cleanunet_tsfm_d_model: 256
-  cleanunet_tsfm_d_inner: 1024
+  cleanunet_tsfm_d_model: 512           # Original paper default
+  cleanunet_tsfm_d_inner: 2048          # Original paper default
+  
+  # CleanSpecNet parameters (original defaults)
+  cleanspecnet_input_channels: 513
+  cleanspecnet_num_conv_layers: 5       # Original paper default
+  cleanspecnet_kernel_size: 4           # Original paper default
+  cleanspecnet_stride: 1
+  cleanspecnet_num_attention_layers: 5  # Original paper default
+  cleanspecnet_num_heads: 8             # Original paper default
+  cleanspecnet_hidden_dim: 512          # Original paper default
+  cleanspecnet_dropout: 0.1
 
-# Fixed: Use your local 16kHz data paths
+# Training configuration (based on original paper)
 trainset:
   csv_path: "data/training_pairs_16khz.csv"
 
 valset:
   csv_path: "data/evaluation_pairs_16khz.csv"
 
-# A100-optimized training settings
+# Training settings (original paper style)
 sample_rate: 16000
-batch_size: 8
+batch_size: 16                # Original paper setting
 num_workers: 4
-epochs: 25
-learning_rate: 0.0002
-weight_decay: 0.0001
+epochs: 300                   # Equivalent to ~1M iterations
+learning_rate: 0.0002         # Original paper setting (2e-4)
+weight_decay: 0.00001         # Original paper setting (1e-5)
 loss_type: l1
 save_path: "outputs"
 
@@ -36,5 +52,21 @@ win_length: 1024
 power: 1.0
 max_length: 65536
 
-# Optional settings
+# Advanced training settings (from original paper)
+optimization:
+  max_norm: 1000000000        # Original paper setting (1e9)
+  
+# Loss configuration (from original paper)
+loss_config:
+  ell_p: 1
+  ell_p_lambda: 1
+  stft_lambda: 1
+  stft_config:
+    sc_lambda: 0.5
+    mag_lambda: 0.5
+    band: "full"
+    hop_sizes: [50, 120, 240]
+    win_lengths: [240, 600, 1200]  
+    fft_sizes: [512, 1024, 2048]
+
 augmentations: null
