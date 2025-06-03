@@ -30,10 +30,10 @@ network_config:
 
 # Training configuration (based on original paper)
 trainset:
-  csv_path: "data/training_pairs_16khz.csv"
+  csv_path: "data/training_pairs_16khz.csv"    # ← UPDATE THIS TO YOUR ACTUAL TRAINING CSV
 
 valset:
-  csv_path: "data/evaluation_pairs_16khz.csv"
+  csv_path: "data/evaluation_pairs_16khz.csv"  # ← UPDATE THIS TO YOUR ACTUAL VALIDATION CSV
 
 # Training settings (original paper style)
 sample_rate: 16000
