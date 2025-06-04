@@ -8,12 +8,11 @@ class ModelFactory:
     """Factory for creating model instances"""
     
     MODEL_MAPPING = {
-        'cleanunet2': 'models.cleanunet2.cleanunet2_wrapper.CleanUNet2Wrapper',
-        'cleanunet2_original': 'models.cleanunet2.cleanunet2_wrapper.CleanUNet2Wrapper',  # Use original implementation
-        'unet': 'models.unet.unet_wrapper.UNetWrapper',
-        'ftcrngan': 'models.ftcrngan.ftcrngan_wrapper.FTCRNGANWrapper',
+    'cleanunet2': 'models.cleanunet2.cleanunet2_wrapper.CleanUNet2Wrapper',
+    'cleanunet2_original': 'models.cleanunet2.cleanunet2_wrapper.CleanUNet2Wrapper',
+    'unet': 'models.unet.unet_wrapper.UNetWrapper',  # ADD THIS LINE
+    'ftcrngan': 'models.ftcrngan.ftcrngan_wrapper.FTCRNGANWrapper',
     }
-    
     @classmethod
     def create_model(cls, model_name: str, config: Optional[Dict[str, Any]] = None):
         """
