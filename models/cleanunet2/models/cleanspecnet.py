@@ -44,14 +44,19 @@ class CleanSpecNet(nn.Module):
         super(CleanSpecNet, self).__init__()
 
         self.input_layer = nn.Conv1d(input_channels, input_channels, kernel_size=3, stride=1, padding=1)
-        # Convolutional Layers
+        
+        # Convolutional Layers - FIX: Ensure proper padding to maintain temporal dimension
         conv_input_channels = input_channels
         self.conv_layers = nn.ModuleList()
         for _ in range(num_conv_layers):
+            # Calculate proper padding to maintain temporal dimension
+            padding1 = kernel_size // 2  # For first conv
+            padding2 = kernel_size // 2  # For second conv
+            
             self.conv_layers.append(nn.Sequential(
-                nn.Conv1d(conv_input_channels, conv_hidden_dim, kernel_size=kernel_size, stride=stride, padding=kernel_size // 2),
+                nn.Conv1d(conv_input_channels, conv_hidden_dim, kernel_size=kernel_size, stride=stride, padding=padding1),
                 nn.ReLU(),
-                nn.Conv1d(conv_hidden_dim, conv_hidden_dim * 2, kernel_size=kernel_size, stride=stride, padding=1),
+                nn.Conv1d(conv_hidden_dim, conv_hidden_dim * 2, kernel_size=kernel_size, stride=stride, padding=padding2),
                 nn.GLU(dim=1)
             ))
             conv_input_channels = conv_hidden_dim
@@ -68,22 +73,35 @@ class CleanSpecNet(nn.Module):
 
     def forward(self, x):
         # x: (batch_size, freq_bins, time_steps)
+        original_shape = x.shape
+        
         x = self.input_layer(x)
+        
         # Convolutional Layers
         for conv in self.conv_layers:
             x = conv(x)  # (batch_size, channels, time_steps)
+            
         # Prepare for Attention Layers
         x = x.transpose(1, 2)  # (batch_size, time_steps, channels)
         x = self.tsfm_projection(x)
+        
         # Attention Layers
         # Create causal mask
         seq_len = x.size(1)
         causal_mask = torch.triu(torch.ones(seq_len, seq_len), diagonal=1).bool().to(x.device)
         for attn in self.attention_layers:
             x = attn(x, causal_mask)
-        x = x.transpose(1, 2)
+            
+        x = x.transpose(1, 2)  # Back to (batch_size, channels, time_steps)
+        
         # Final projection
-        x = self.output_layer(x)  # (batch_size, time_steps, input_channels)
+        x = self.output_layer(x)  # (batch_size, input_channels, time_steps)
+        
+        # CRITICAL FIX: Ensure output has exactly the same temporal dimension as input
+        if x.shape[2] != original_shape[2]:
+            # If there's a mismatch, interpolate to match original temporal dimension
+            x = F.interpolate(x, size=original_shape[2], mode='linear', align_corners=False)
+        
         return x
 
 

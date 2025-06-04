@@ -10,7 +10,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 #from losses import MultiResolutionSTFTLoss
-from logger import Logger
+sed -i 's/from logger import Logger/from .logger import Logger/' models/cleanunet2/util.py
 
 
 def flatten(v):
