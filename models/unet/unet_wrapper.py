@@ -1,7 +1,7 @@
 # models/unet/unet_wrapper.py
 """
-EXACT wrapper that uses the same preprocessing/postprocessing functions
-from U-Net_speech_enhancement.py
+UNet wrapper that integrates with the existing framework
+Key difference: UNet processes spectrograms only, not audio + spectrogram like CleanUNet2
 """
 import torch
 import numpy as np
@@ -12,166 +12,244 @@ import os
 from core.base_model import BaseModel
 
 class UNetWrapper(BaseModel):
-    """UNet wrapper with EXACT functions from U-Net_speech_enhancement.py"""
+    """UNet wrapper that handles spectrogram-only processing"""
     
     def __init__(self, model_class, config):
         """
-        Initialize UNet wrapper exactly like the original
+        Initialize UNet wrapper to work with existing framework
+        
+        Args:
+            model_class: The UNet model class
+            config: Configuration dictionary
         """
-        # Call parent constructor - but we'll override most functionality
+        # Initialize the base model
         super().__init__(model_class, config)
         
-        # EXACT parameters from original
-        self.down_sample = 16000
-        self.frame_length = 0.032
-        self.frame_shift = 0.016
-        self.num_frames = 16
+        # Store UNet-specific parameters from config
+        self.model_type = "spectrogram_only"  # Flag to help training manager
         
-        # EXACT normalization values from original training
-        self.max_x = -0.2012536819610933  # From original training step
-        self.min_x = -9.188868273733446   # From original training step
+        # Audio processing parameters
+        self.sample_rate = config.get('sample_rate', 16000)
+        self.frame_length = config.get('frame_length', 0.032)
+        self.frame_shift = config.get('frame_shift', 0.016)
+        self.num_frames = config.get('num_frames', 16)
+        
+        # Normalization parameters (from original UNet training)
+        self.min_val = config.get('min_val', -9.188868273733446)
+        self.max_val = config.get('max_val', -0.2012536819610933)
+        
+        print(f"✅ UNet wrapper initialized - processes spectrograms only")
+        print(f"   Parameters: {sum(p.numel() for p in self.model.parameters()):,}")
     
-    def pre_processing(self, data, Fs, down_sample):
-        """EXACT copy of pre_processing function from original"""
+    def forward(self, *args, **kwargs):
+        """
+        Forward pass that handles different input formats
         
-        #Transform stereo into monoral
-        if data.ndim == 2:
-            wavdata = 0.5*data[:, 0] + 0.5*data[:, 1]
+        For UNet:
+        - If given (audio, spectrogram) -> use spectrogram only
+        - If given spectrogram only -> use directly
+        """
+        if len(args) == 2:
+            # CleanUNet2 format: (audio, spectrogram) -> use only spectrogram for UNet
+            _, spectrogram = args
+            return self.model(spectrogram)
+        elif len(args) == 1:
+            # Direct spectrogram input
+            spectrogram = args[0]
+            return self.model(spectrogram)
         else:
-            wavdata = data
-        
-        #Downsample if necessary
-        if down_sample is not None:
-            wavdata = sg.resample_poly(wavdata, down_sample, Fs)
-            Fs = down_sample
-        
-        return wavdata, Fs
+            raise ValueError(f"UNet expects 1 or 2 inputs, got {len(args)}")
     
-    def read_evaldata(self, file_path, down_sample, frame_length, frame_shift, num_frames):
-        """EXACT copy of read_evaldata function from original"""
-        
-        #Initialize list
-        x = []
-        ang_x = []
-        
-        #Read .wav file and get pre-process
-        wavdata, Fs = sf.read(file_path)
-        wavdata, Fs = self.pre_processing(wavdata, Fs, down_sample)
-        
-        #Calculate the index of window size and overlap
-        FL = round(frame_length * Fs)
-        FS = round(frame_shift * Fs)
-        OL = FL - FS
-        
-        #Execute STFT
-        _, _, dft = sg.stft(wavdata, fs=Fs, window='hann', nperseg=FL, noverlap=OL)
-        dft = dft[:-1].T #Remove the last point and get transpose
-        ang = np.angle(dft) #Preserve the phase
-        spec = np.log10(np.abs(dft))
-        
-        #Crop the temporal frames into input size
-        num_seg = math.floor(spec.shape[0] / num_frames)
-        for j in range(num_seg):
-            #Add results to list sequentially
-            x.append(spec[int(j*num_frames) : int((j+1)*num_frames), :])
-            ang_x.append(ang[int(j*num_frames) : int((j+1)*num_frames), :])
-        
-        #Convert into numpy array
-        x = np.array(x)
-        ang_x = np.array(ang_x)
-        
-        return wavdata, Fs, x, ang_x
+    def get_training_input_format(self):
+        """Return the input format this model expects for training"""
+        return "spectrogram_only"
     
-    def reconstruct_wave(self, eval_y, ang_x, Fs, frame_length, frame_shift):
-        """EXACT copy of reconstruct_wave function from original"""
+    def prepare_training_batch(self, batch):
+        """
+        Prepare batch for UNet training
         
-        #Construct the spectrogram by concatenating all segments
-        Y = np.reshape(eval_y, (-1, eval_y.shape[-1]))
-        ang = np.reshape(ang_x, (-1, ang_x.shape[-1]))
+        UNet uses spectrogram -> spectrogram mapping
+        Input: noisy spectrogram
+        Target: clean spectrogram
         
-        #The Y and arg can be transpose for processing
-        Y, ang = Y.T, ang.T
-        
-        #Restore the magnitude of STFT
-        Y = np.power(10, Y)
-        
-        #Retrieve the phase from original wave
-        Y = Y * np.exp(1j*ang)
-        
-        #Add the last frequency bin along with frequency axis
-        Y = np.append(Y, Y[-1, :][np.newaxis,:], axis=0)
-        
-        #Get the inverse STFT
-        FL = round(frame_length * Fs)
-        FS = round(frame_shift * Fs)
-        OL = FL - FS
-        _, rec_wav = sg.istft(Y, fs=Fs, window='hann', nperseg=FL, noverlap=OL)
-        
-        return rec_wav, Fs
-    
-    def UNet_evaluation(self, eval_x):
-        """EXACT copy of UNet_evaluation function from original (without RTF calculation)"""
-        
-        # Convert input to tensor
-        eval_tensor = torch.tensor(eval_x, dtype=torch.float32).unsqueeze(1).to(self.device)  # Add channel dimension
-        
-        # Predict
-        self.model.eval()
-        with torch.no_grad():
-            output = self.model(eval_tensor)
-        
-        # Convert back to numpy
-        eval_y = output.squeeze(1).cpu().numpy()
-        
-        return eval_y
+        Args:
+            batch: (clean_audio, clean_spec, noisy_audio, noisy_spec)
+            
+        Returns:
+            inputs, targets for UNet training
+        """
+        if len(batch) == 4:
+            clean_audio, clean_spec, noisy_audio, noisy_spec = batch
+            
+            # For UNet: input = noisy_spec, target = clean_spec
+            inputs = noisy_spec  # [B, F, T]
+            targets = clean_spec  # [B, F, T]
+            
+            # Add channel dimension if needed: [B, F, T] -> [B, 1, F, T]
+            if inputs.dim() == 3:
+                inputs = inputs.unsqueeze(1)
+            if targets.dim() == 3:
+                targets = targets.unsqueeze(1)
+                
+            # Transpose to [B, 1, T, F] format expected by UNet
+            inputs = inputs.transpose(-2, -1)  # [B, 1, F, T] -> [B, 1, T, F]
+            targets = targets.transpose(-2, -1)  # [B, 1, F, T] -> [B, 1, T, F]
+            
+            return inputs, targets
+        else:
+            raise ValueError(f"Expected batch with 4 elements, got {len(batch)}")
     
     def preprocess_for_inference(self, audio_path):
         """
-        Preprocess audio using EXACT original functions
+        Preprocess audio file for UNet inference
+        Uses the exact same preprocessing as the original UNet training
+        
+        Args:
+            audio_path: Path to audio file
+            
+        Returns:
+            tuple: (preprocessed_tensor, reconstruction_info)
         """
-        # Use the exact read_evaldata function
-        wavdata, Fs, eval_x, ang_x = self.read_evaldata(
-            audio_path, self.down_sample, self.frame_length, self.frame_shift, self.num_frames
-        )
+        # Read and preprocess audio - EXACT from original
+        audio, sample_rate = sf.read(audio_path)
         
-        # Apply EXACT normalization from original
-        eval_x = (eval_x - self.min_x) / (self.max_x - self.min_x)
+        # Convert stereo to mono
+        if audio.ndim == 2:
+            audio = 0.5 * audio[:, 0] + 0.5 * audio[:, 1]
         
-        return eval_x, {
-            'ang_x': ang_x,
-            'Fs': Fs,
-            'wavdata': wavdata
-        }
+        # Resample if necessary
+        if sample_rate != self.sample_rate:
+            audio = sg.resample_poly(audio, self.sample_rate, sample_rate)
+        
+        # Calculate STFT parameters - EXACT from original
+        FL = round(self.frame_length * self.sample_rate)
+        FS = round(self.frame_shift * self.sample_rate)
+        OL = FL - FS
+        
+        # Compute STFT - EXACT from original
+        _, _, dft = sg.stft(audio, fs=self.sample_rate, window='hann', nperseg=FL, noverlap=OL)
+        dft = dft[:-1].T  # Remove last point and transpose
+        
+        # Store phase for reconstruction
+        phase = np.angle(dft)
+        
+        # Convert to log magnitude - EXACT from original
+        log_magnitude = np.log10(np.abs(dft))
+        
+        # Normalize - EXACT from original
+        log_magnitude_norm = (log_magnitude - self.min_val) / (self.max_val - self.min_val)
+        
+        # Crop into segments - EXACT from original
+        num_segments = math.floor(log_magnitude_norm.shape[0] / self.num_frames)
+        segments = []
+        
+        for i in range(num_segments):
+            start_idx = i * self.num_frames
+            end_idx = (i + 1) * self.num_frames
+            segment = log_magnitude_norm[start_idx:end_idx, :]
+            segments.append(segment)
+        
+        if segments:
+            # Convert to tensor: [N, T, F] -> [N, 1, T, F]
+            segments = np.array(segments)
+            input_tensor = torch.tensor(segments, dtype=torch.float32).unsqueeze(1)
+            
+            # Store reconstruction info
+            reconstruction_info = {
+                'phase': phase,
+                'original_audio': audio,
+                'sample_rate': self.sample_rate,
+                'num_segments': num_segments,
+                'original_shape': log_magnitude.shape
+            }
+            
+            return input_tensor, reconstruction_info
+        else:
+            # Return dummy data if no segments
+            dummy_tensor = torch.zeros((1, 1, self.num_frames, 513))
+            return dummy_tensor, None
     
     def postprocess_output(self, model_output, reconstruction_info):
         """
-        Postprocess using EXACT original functions
+        Convert model output back to audio
+        Uses the exact same postprocessing as the original UNet
+        
+        Args:
+            model_output: Model output tensor [N, 1, T, F]
+            reconstruction_info: Info needed for reconstruction
+            
+        Returns:
+            numpy array: Reconstructed audio
         """
-        # Restore the scale before normalization (EXACT from original)
-        eval_y = model_output * (self.max_x - self.min_x) + self.min_x
+        if reconstruction_info is None:
+            return np.zeros(16000)  # Return 1 second of silence
         
-        # Use exact reconstruct_wave function
-        rec_wav, Fs = self.reconstruct_wave(
-            eval_y, 
-            reconstruction_info['ang_x'], 
-            reconstruction_info['Fs'], 
-            self.frame_length, 
-            self.frame_shift
-        )
+        # Convert to numpy and remove batch/channel dimensions
+        output = model_output.squeeze().cpu().numpy()  # [N, T, F] or [T, F]
         
-        return rec_wav
+        # Handle single segment case
+        if output.ndim == 2:
+            output = output[np.newaxis, ...]  # [1, T, F]
+        
+        # Denormalize - EXACT from original
+        output = output * (self.max_val - self.min_val) + self.min_val
+        
+        # Reshape to full spectrogram - EXACT from original
+        output_reshaped = output.reshape(-1, output.shape[-1])  # [N*T, F]
+        
+        # Get phase and truncate to match
+        phase = reconstruction_info['phase']
+        min_len = min(output_reshaped.shape[0], phase.shape[0])
+        output_reshaped = output_reshaped[:min_len]
+        phase = phase[:min_len]
+        
+        # Convert back to complex spectrogram - EXACT from original
+        magnitude = np.power(10, output_reshaped)
+        complex_spec = magnitude * np.exp(1j * phase)
+        
+        # Transpose and add frequency bin - EXACT from original
+        complex_spec = complex_spec.T  # [F, T]
+        complex_spec = np.vstack([complex_spec, complex_spec[-1][np.newaxis, :]])  # Add last freq bin
+        
+        # Inverse STFT - EXACT from original
+        FL = round(self.frame_length * self.sample_rate)
+        FS = round(self.frame_shift * self.sample_rate)
+        OL = FL - FS
+        
+        _, reconstructed_audio = sg.istft(complex_spec, fs=self.sample_rate, 
+                                         window='hann', nperseg=FL, noverlap=OL)
+        
+        return reconstructed_audio
     
-    def inference(self, audio_path):
+    def inference(self, audio_path, output_path=None):
         """
-        Complete inference pipeline using EXACT original logic
+        Complete inference pipeline
+        
+        Args:
+            audio_path: Input audio file path
+            output_path: Output audio file path (optional)
+            
+        Returns:
+            Reconstructed audio array
         """
-        # Preprocess using exact functions
-        eval_x, reconstruction_info = self.preprocess_for_inference(audio_path)
+        # Preprocess
+        input_tensor, reconstruction_info = self.preprocess_for_inference(audio_path)
         
-        # Run model inference using exact function
-        eval_y = self.UNet_evaluation(eval_x)
+        # Move to device
+        input_tensor = input_tensor.to(next(self.model.parameters()).device)
         
-        # Postprocess using exact functions
-        reconstructed_audio = self.postprocess_output(eval_y, reconstruction_info)
+        # Run inference
+        self.model.eval()
+        with torch.no_grad():
+            output = self.model(input_tensor)
+        
+        # Postprocess
+        reconstructed_audio = self.postprocess_output(output, reconstruction_info)
+        
+        # Save if requested
+        if output_path:
+            os.makedirs(os.path.dirname(output_path), exist_ok=True)
+            sf.write(output_path, reconstructed_audio, self.sample_rate)
+            print(f"✅ Saved enhanced audio to: {output_path}")
         
         return reconstructed_audio
