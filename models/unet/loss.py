@@ -1,10 +1,15 @@
 # models/unet/loss.py
+"""
+EXACT loss function from U-Net_speech_enhancement.py
+"""
 import torch
 import torch.nn as nn
 
 class LSDLoss(nn.Module):
-    """Log-Spectral Distance Loss"""
-    
+    """
+    EXACT copy of LSDLoss from your U-Net_speech_enhancement.py
+    Log-Spectral Distance Loss
+    """
     def __init__(self):
         super(LSDLoss, self).__init__()
         
