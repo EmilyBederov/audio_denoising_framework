@@ -87,15 +87,18 @@ class CleanUNet2(nn.Module):
             center=False,
             normalized=True
         )  # Shape: (batch_size, freq_bins, time_frames)
+        
         # Get the phase from the noisy STFT
         phase_noisy = torch.angle(stft_noisy)
-
+        
+        # Handle dimension mismatch between denoised_spectrogram and phase_noisy
         min_time_frames = min(denoised_spectrogram.shape[-1], phase_noisy.shape[-1])
         denoised_spectrogram = denoised_spectrogram[..., :min_time_frames]
         phase_noisy = phase_noisy[..., :min_time_frames]
-    
+        
         # Reconstruct the complex spectrogram using denoised magnitude and noisy phase
         denoised_complex_spectrogram = denoised_spectrogram * torch.exp(1j * phase_noisy)
+        
         # Perform ISTFT to reconstruct waveform
         reconstructed_waveform = torch.istft(
             denoised_complex_spectrogram,
@@ -110,11 +113,20 @@ class CleanUNet2(nn.Module):
     
 
     def forward(self, noisy_waveform, noisy_spectrogram):
-        denoised_spectrogram = self.clean_spec_net(noisy_spectrogram)
+        # Process spectrogram through CleanSpecNet (fix dimension mismatch)
+        noisy_spec_3d = noisy_spectrogram.squeeze(1)  # [B, 1, F, T] -> [B, F, T]
+        denoised_spectrogram = self.clean_spec_net(noisy_spec_3d)
+        
+        # Reconstruct waveform from denoised spectrogram
         reconstructed_waveform = self._reconstruct_waveform(noisy_waveform, denoised_spectrogram)
+        
+        # Concatenate original and reconstructed waveforms
         concat_waveform = torch.cat((noisy_waveform, reconstructed_waveform), dim=1)
         concat_waveform = self.WaveformConditioner(concat_waveform)
+        
+        # Final waveform denoising through CleanUNet
         denoised_waveform = self.clean_unet(concat_waveform)
+        
         return denoised_waveform, denoised_spectrogram
 
 
@@ -138,4 +150,3 @@ if __name__ == '__main__':
     loss = torch.nn.MSELoss()(clean_waveform, denoised_waveform)
     loss.backward()
     print(loss.item())
-

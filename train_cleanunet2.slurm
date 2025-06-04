@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH --job-name=cleanunet2_train
+#SBATCH --job-name=cleanunet2_final
 #SBATCH --partition=work
 #SBATCH --gres=gpu:1
 #SBATCH --time=12:00:00
@@ -39,19 +39,30 @@ echo "Validation CSV exists: $(test -f data/evaluation_pairs_16khz.csv && echo '
 export PYTHONPATH=$PWD:$PYTHONPATH
 
 echo "=== STARTING CLEANUNET2 TRAINING ==="
+echo "Training will take ~8-12 hours for 300 epochs"
+echo "Expected final model size: ~58M parameters"
+echo "Target performance: PESQ > 3.0, STOI > 0.95"
+
 python run.py \
     --config configs/configs-cleanunet2/cleanunet2-config.yaml \
     --model cleanunet2 \
     --mode train \
     --device cuda \
-    --batch_size 8
+    --batch_size 4
 
 echo "=== TRAINING COMPLETED ==="
 echo "Date: $(date)"
+echo "Training duration: $(($(date +%s) - start_time)) seconds"
+
+echo "=== FINAL RESULTS ==="
 echo "Models saved in:"
 ls -la outputs/cleanunet2/ || echo "No outputs directory found"
 
-echo "=== FINAL GPU STATE ==="
-nvidia-smi
+echo "=== MODEL FILES ==="
+find outputs -name "*.pth" -exec ls -lh {} \; 2>/dev/null || echo "No model files found"
+
+echo "=== READY FOR INFERENCE ==="
+echo "Test your model with:"
+echo "python test_realtime.py --model outputs/cleanunet2/cleanunet2_best.pth --input test.wav"
 
 echo "=== JOB FINISHED ==="
