@@ -55,10 +55,10 @@ class TrainingManager:
                 stft_lambda=1.0,
                 mrstftloss=mrstft_loss
             )
-            print("✅ Using CleanUNet2 paper loss (L1 + Multi-resolution STFT)")
+            print(" Using CleanUNet2 paper loss (L1 + Multi-resolution STFT)")
         else:
             self.loss_fn = torch.nn.L1Loss()
-            print("✅ Using default L1 loss")
+            print(" Using default L1 loss")
     
     def _setup_optimizer(self):
         """Setup optimizer based on config"""
