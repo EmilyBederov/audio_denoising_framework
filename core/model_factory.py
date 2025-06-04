@@ -53,7 +53,7 @@ class ModelFactory:
             # Use the ORIGINAL CleanUNet2 implementation
             from models.cleanunet2.models.cleanunet2 import CleanUNet2
             return CleanUNet2
-        elif model_name == 'unet':
+        elif model_name == 'unet':  # ADD THIS BLOCK
             from models.unet.models.unet import UNet
             return UNet
         elif model_name == 'ftcrngan':
@@ -61,7 +61,7 @@ class ModelFactory:
             return FTCRNGAN
         else:
             raise ValueError(f"Unknown model class for: {model_name}")
-        
+            
     @staticmethod
     def load_model_config(model_name: str):
         """Load model configuration from YAML file"""
