@@ -1,4 +1,5 @@
-data/
+\data/
 outputs/
 __pycache__/
 logs/
+denoising_results/
