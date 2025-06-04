@@ -1,22 +1,66 @@
-# configs/models/unet.yaml
-model_name: unet
-description: "Simple UNet for audio denoising"
+# configs/configs-unet/unet.yaml
+# UNet configuration for your audio denoising framework
 
-# Model parameters
+# Model identification
+model_name: unet
+description: "UNet for audio denoising using spectrograms"
+
+# Model architecture parameters
 input_channels: 1
 output_channels: 1
 base_channels: 32
-depth: 3
+depth: 3  # UNet depth (currently fixed at 3 layers)
 
-# STFT parameters
+# Audio processing parameters
 sample_rate: 16000
 n_fft: 1024
 hop_length: 256
 win_length: 1024
-frame_length: 0.032  # in seconds
-frame_shift: 0.016   # in seconds
-num_frames: 16
+frame_length: 0.032  # STFT window width in seconds
+frame_shift: 0.016   # STFT window shift in seconds
+num_frames: 16       # Number of frames per input segment
+power: 1.0
 
-# Training parameters
-min_val: -9.188868273733446  # Normalization parameters
-max_val: -0.2012536819610933 # Based on dataset statistics
+# Normalization parameters (from original UNet training)
+# These MUST match the values used during training
+min_val: -9.188868273733446
+max_val: -0.2012536819610933
+
+# Training parameters (EXACT from original UNet)
+batch_size: 16        # From original: batch_size = 8-64, using 16 as middle ground
+epochs: 30           # From original: epoch = 30
+learning_rate: 0.0001 # From original: learn_rate = 1e-4
+lr_decay: 0          # From original: lr_decay = 0 (learning rate decay factor)
+weight_decay: 0.0    # Not specified in original, keeping minimal
+save_every: 5        # Save checkpoint every N epochs
+
+# Data paths - modify these to match your data structure
+trainset:
+  csv_path: "data/audio_data/training_pairs_16khz.csv"
+
+valset:
+  csv_path: "data/audio_data/evaluation_pairs_16khz.csv"
+
+# Optional test set
+testset:
+  csv_path: "data/audio_data/evaluation_pairs_16khz.csv"
+
+# Data processing parameters
+max_length: 65536  # Maximum audio length in samples
+crop_length_sec: 4.0  # Crop length for training data
+
+# Worker settings
+num_workers: 4
+
+# Output settings
+save_path: "outputs/unet"
+
+# Loss function (EXACT from original UNet)
+loss_type: "lsd"  # Uses LSD (Log-Spectral Distance) loss, NOT L1 loss
+
+# Network configuration (for BaseModel compatibility)
+network_config:
+  input_channels: 1
+  output_channels: 1
+  base_channels: 32
+  depth: 3
