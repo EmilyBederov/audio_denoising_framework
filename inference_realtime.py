@@ -93,9 +93,9 @@ class AudioDenoiser:
         # Load state dict (handle wrapper prefix if needed)
         try:
             model.load_state_dict(state_dict, strict=True)
-            print("✅ Model loaded with strict=True")
+            print(" Model loaded with strict=True")
         except RuntimeError as e:
-            print(f"⚠️ Strict loading failed, trying with model. prefix...")
+            print(f" Strict loading failed, trying with model. prefix...")
             # Try adding 'model.' prefix
             new_state_dict = {}
             for key, value in state_dict.items():
@@ -107,9 +107,9 @@ class AudioDenoiser:
             
             try:
                 model.load_state_dict(new_state_dict, strict=False)
-                print("✅ Model loaded with model. prefix")
+                print(" Model loaded with model. prefix")
             except RuntimeError:
-                print("❌ Failed to load model. Check checkpoint compatibility.")
+                print(" Failed to load model. Check checkpoint compatibility.")
                 raise
         
         return model
@@ -239,11 +239,11 @@ class AudioDenoiser:
                 rtf = processing_time / duration
                 
                 print(f"Inference time: {processing_time:.4f} sec")
-                print(f"Real-Time Factor (RTF): {rtf:.4f} -> {'✅ Real-time' if rtf < 1 else '⚠️ Too slow'}")
+                print(f"Real-Time Factor (RTF): {rtf:.4f} -> {' Real-time' if rtf < 1 else ' Too slow'}")
                 
                 # Save denoised audio
                 torchaudio.save(denoise_path, denoised_waveform.unsqueeze(0), self.sample_rate)
-                print(f"✅ Saved denoised audio: {denoise_path}")
+                print(f" Saved denoised audio: {denoise_path}")
                 
                 # Track successful processing
                 total_rtf.append(rtf)
@@ -251,7 +251,7 @@ class AudioDenoiser:
                 success_count += 1
                 
             except Exception as e:
-                print(f"❌ ERROR processing {filename}: {e}")
+                print(f" ERROR processing {filename}: {e}")
                 import traceback
                 traceback.print_exc()
                 continue
@@ -271,15 +271,15 @@ class AudioDenoiser:
             print(f"  Average RTF: {avg_rtf:.4f}")
             print(f"  Min RTF: {min_rtf:.4f}")
             print(f"  Max RTF: {max_rtf:.4f}")
-            print(f"  Real-time capable: {'✅ Yes' if avg_rtf < 1 else '❌ No'}")
+            print(f"  Real-time capable: {' Yes' if avg_rtf < 1 else ' No'}")
             
             # Performance rating
             if avg_rtf < 0.5:
-                print(f"  Performance: 🚀 Excellent (2x faster than real-time)")
+                print(f"  Performance: Excellent (2x faster than real-time)")
             elif avg_rtf < 1.0:
-                print(f"  Performance: ✅ Good (real-time capable)")
+                print(f"  Performance: Good (real-time capable)")
             else:
-                print(f"  Performance: ⚠️ Needs optimization")
+                print(f"  Performance: Needs optimization")
         
         return processed_files, total_rtf
     
@@ -326,9 +326,9 @@ class AudioDenoiser:
                     shutil.copy2(src_clean, dst_clean)
                 if os.path.exists(src_denoise):
                     shutil.copy2(src_denoise, dst_denoise)
-                print(f"  ✅ {filename}")
+                print(f"  {filename}")
             except Exception as e:
-                print(f"  ❌ {filename}: {e}")
+                print(f"   {filename}: {e}")
         
         # Create tar archive
         print(f"\nCreating archive: {output_archive}")
@@ -341,10 +341,10 @@ class AudioDenoiser:
         # Get archive size
         archive_size = os.path.getsize(output_archive) / (1024 * 1024)  # MB
         
-        print(f"✅ Archive created successfully!")
-        print(f"📁 Archive: {output_archive}")
-        print(f"📊 Size: {archive_size:.1f} MB")
-        print(f"📋 Contains: {len(processed_files)} files × 3 versions = {len(processed_files) * 3} total files")
+        print(f" Archive created successfully!")
+        print(f" Archive: {output_archive}")
+        print(f" Size: {archive_size:.1f} MB")
+        print(f" Contains: {len(processed_files)} files × 3 versions = {len(processed_files) * 3} total files")
         
         return output_archive
 
@@ -413,11 +413,11 @@ def main():
                 args.output_archive
             )
             
-            print(f"\n🎉 Successfully processed {len(processed_files)} files!")
-            print(f"📦 Results archived in: {archive_path}")
+            print(f"\n Successfully processed {len(processed_files)} files!")
+            print(f" Results archived in: {archive_path}")
             print(f"\nTo extract: tar -xf {archive_path}")
         else:
-            print("\n❌ No files were processed successfully")
+            print("\n No files were processed successfully")
             
     except FileNotFoundError as e:
         print(f"ERROR: File not found: {e}")
