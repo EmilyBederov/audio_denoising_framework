@@ -29,7 +29,7 @@ class CleanUNet2Wrapper(BaseModel):
         
         # Option 1: Use original defaults (recommended)
         if net_cfg.get('use_original_defaults', True):
-            print("✅ Using original CleanUNet2 defaults (paper configuration)")
+            print(" Using original CleanUNet2 defaults (paper configuration)")
             return {}  # Empty dict = use all defaults
         
         # Option 2: Custom parameters (for advanced users)
@@ -107,14 +107,14 @@ class CleanUNet2Wrapper(BaseModel):
         # Load with error handling
         try:
             self.model.load_state_dict(new_state_dict, strict=True)
-            print("✅ Model loaded successfully with strict=True")
+            print(" Model loaded successfully with strict=True")
         except RuntimeError as e:
-            print(f"⚠️ Strict loading failed: {e}")
+            print(f" Strict loading failed: {e}")
             print("Attempting to load with strict=False...")
             self.model.load_state_dict(new_state_dict, strict=False)
-            print("✅ Model loaded with strict=False")
+            print(" Model loaded with strict=False")
             
-        print(f"✅ Loaded checkpoint from {checkpoint_path}")
+        print(f" Loaded checkpoint from {checkpoint_path}")
 
 # Import torch at the end to avoid circular imports
 import torch

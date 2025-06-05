@@ -30,7 +30,7 @@ def find_latest_checkpoint_pth(checkpoint_dir):
         print(f"Checkpoint directory does not exist: {checkpoint_dir}")
         return None, 0
     
-    print(f"🔍 Searching for checkpoints in: {checkpoint_dir}")
+    print(f" Searching for checkpoints in: {checkpoint_dir}")
     
     # Look for different .pth naming patterns
     patterns = [
@@ -50,7 +50,7 @@ def find_latest_checkpoint_pth(checkpoint_dir):
     checkpoint_files = list(set(all_checkpoint_files))
     
     if not checkpoint_files:
-        print(f"❌ No .pth checkpoint files found in: {checkpoint_dir}")
+        print(f" No .pth checkpoint files found in: {checkpoint_dir}")
         print("Available files:")
         for f in os.listdir(checkpoint_dir):
             print(f"   {f}")
@@ -103,7 +103,7 @@ def find_latest_checkpoint_pth(checkpoint_dir):
             latest_file = f
     
     if latest_file:
-        print(f"✅ Latest checkpoint: {os.path.basename(latest_file)} (epoch/iter: {latest_number})")
+        print(f" Latest checkpoint: {os.path.basename(latest_file)} (epoch/iter: {latest_number})")
     
     return latest_file, latest_number
 
@@ -125,7 +125,7 @@ def load_checkpoint_pth(checkpoint_path, model, optimizer):
                 iteration = checkpoint.get('iteration', checkpoint.get('global_step', 0))
                 learning_rate = checkpoint.get('learning_rate', optimizer.param_groups[0]['lr'])
                 
-                print(f"   ✅ Loaded full checkpoint:")
+                print(f"      Loaded full checkpoint:")
                 print(f"      Epoch: {epoch}")
                 print(f"      Iteration/Global Step: {iteration}")
                 print(f"      Learning Rate: {learning_rate}")
@@ -139,7 +139,7 @@ def load_checkpoint_pth(checkpoint_path, model, optimizer):
                 epoch = checkpoint.get('epoch', 0)
                 iteration = checkpoint.get('iteration', checkpoint.get('global_step', 0))
                 
-                print(f"   ⚠️ Loaded model state only (no optimizer state)")
+                print(f"      Loaded model state only (no optimizer state)")
                 print(f"      Epoch: {epoch}")
                 print(f"      Iteration: {iteration}")
                 
@@ -148,7 +148,7 @@ def load_checkpoint_pth(checkpoint_path, model, optimizer):
             # Format 3: Direct state dict
             else:
                 model.load_state_dict(checkpoint)
-                print(f"   ⚠️ Loaded direct state dict (no training info)")
+                print(f"     Loaded direct state dict (no training info)")
                 
                 # Try to extract epoch from filename
                 filename = os.path.basename(checkpoint_path)
@@ -164,11 +164,11 @@ def load_checkpoint_pth(checkpoint_path, model, optimizer):
         else:
             # Direct model state dict
             model.load_state_dict(checkpoint)
-            print(f"   ⚠️ Loaded direct model weights")
+            print(f"    Loaded direct model weights")
             return model, optimizer, optimizer.param_groups[0]['lr'], 0, 0
             
     except Exception as e:
-        print(f"❌ Error loading checkpoint: {e}")
+        print(f" Error loading checkpoint: {e}")
         raise
 
 def train(num_gpus, rank, group_name, exp_path, checkpoint_path, log, optimization, testloader, loss_config, device=None):
@@ -214,7 +214,7 @@ def train(num_gpus, rank, group_name, exp_path, checkpoint_path, log, optimizati
     steps_per_epoch = len(trainloader)
     total_epochs = config["epochs"]
     
-    print(f"📊 Training Info:")
+    print(f" Training Info:")
     print(f"   Steps per epoch: {steps_per_epoch}")
     print(f"   Total epochs: {total_epochs}")
 
@@ -226,7 +226,7 @@ def train(num_gpus, rank, group_name, exp_path, checkpoint_path, log, optimizati
             latest_ckpt = checkpoint_path
             latest_number = 0
         else:
-            print(f"❌ Checkpoint path does not exist: {checkpoint_path}")
+            print(f" Checkpoint path does not exist: {checkpoint_path}")
             latest_ckpt = None
             
         if latest_ckpt:
@@ -241,13 +241,13 @@ def train(num_gpus, rank, group_name, exp_path, checkpoint_path, log, optimizati
                     start_epoch = epoch
                     global_step = start_epoch * steps_per_epoch
                 
-                print(f"🚀 Resuming training:")
+                print(f" Resuming training:")
                 print(f"   Start epoch: {start_epoch + 1}/{total_epochs}")
                 print(f"   Global step: {global_step}")
                 print(f"   Learning rate: {optimizer.param_groups[0]['lr']}")
                 
             except Exception as e:
-                print(f"❌ Failed to load checkpoint: {e}")
+                print(f" Failed to load checkpoint: {e}")
                 print("Starting from scratch...")
                 start_epoch = 0
                 global_step = 0
@@ -273,7 +273,7 @@ def train(num_gpus, rank, group_name, exp_path, checkpoint_path, log, optimizati
     mrstftloss = MultiResolutionSTFTLoss(**loss_config["stft_config"]).to(device) if loss_config["stft_lambda"] > 0 else None
     loss_fn = CleanUNet2Loss(**loss_config, mrstftloss=mrstftloss)
 
-    print(f"🎯 Starting training from epoch {start_epoch + 1}/{total_epochs} (global step {global_step})...")
+    print(f" Starting training from epoch {start_epoch + 1}/{total_epochs} (global step {global_step})...")
     
     # Training loop with correct epoch counting
     for epoch in range(start_epoch, total_epochs):
@@ -336,13 +336,13 @@ def train(num_gpus, rank, group_name, exp_path, checkpoint_path, log, optimizati
                     'config': config
                 }, checkpoint_file)
                 
-                tqdm.write(f"[✅] Checkpoint saved: {checkpoint_name} (epoch {epoch+1})")
+                tqdm.write(f" Checkpoint saved: {checkpoint_name} (epoch {epoch+1})")
 
             global_step += 1
 
         # End of epoch summary
         avg_epoch_loss = epoch_loss / len(trainloader)
-        print(f"✅ Epoch {epoch+1}/{total_epochs} completed")
+        print(f"   Epoch {epoch+1}/{total_epochs} completed")
         print(f"   Average loss: {avg_epoch_loss:.6f}")
         print(f"   Global step: {global_step}")
         print(f"   Learning rate: {optimizer.param_groups[0]['lr']:.6f}")
@@ -359,7 +359,7 @@ def train(num_gpus, rank, group_name, exp_path, checkpoint_path, log, optimizati
                 'loss': avg_epoch_loss,
                 'config': config
             }, epoch_checkpoint)
-            print(f"   💾 Epoch checkpoint: {os.path.basename(epoch_checkpoint)}")
+            print(f"    Epoch checkpoint: {os.path.basename(epoch_checkpoint)}")
 
         # Validation after each epoch
         if rank == 0:
@@ -377,7 +377,7 @@ def train(num_gpus, rank, group_name, exp_path, checkpoint_path, log, optimizati
             'learning_rate': optimizer.param_groups[0]['lr'],
             'config': config
         }, final_model_path)
-        print(f"[🎉] Training completed! Final model saved: {final_model_path}")
+        print(f" Training completed! Final model saved: {final_model_path}")
 
     return 0
 
