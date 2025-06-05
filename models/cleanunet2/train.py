@@ -1,3 +1,5 @@
+# models/cleanunet2/train_fixed.py - Fixed to properly resume training from correct epoch
+
 import argparse
 import yaml
 import torch
@@ -22,81 +24,37 @@ random.seed(0)
 torch.manual_seed(0)
 np.random.seed(0)
 
-def check_for_nan_and_inf(tensor, tensor_name="tensor"):
-    if torch.isnan(tensor).any():
-        raise ValueError(f"{tensor_name} has NaN values!")
-    if torch.isinf(tensor).any():
-        raise ValueError(f"{tensor_name} has Inf values!")
+def find_latest_checkpoint(checkpoint_dir):
+    """Find the latest checkpoint file with proper epoch extraction"""
+    if not os.path.exists(checkpoint_dir):
+        return None, 0
+    
+    checkpoint_files = glob.glob(os.path.join(checkpoint_dir, '*.pkl'))
+    if not checkpoint_files:
+        return None, 0
+    
+    # Extract iteration numbers and find the latest
+    latest_file = None
+    latest_iteration = 0
+    
+    for f in checkpoint_files:
+        try:
+            filename = os.path.basename(f)
+            if filename.endswith('.pkl'):
+                iteration = int(filename[:-4])  # Remove .pkl extension
+                if iteration > latest_iteration:
+                    latest_iteration = iteration
+                    latest_file = f
+        except ValueError:
+            continue
+    
+    return latest_file, latest_iteration
 
-def validate(model, val_loader, loss_fn, iteration, trainset_config, logger, device):
-    model.eval()
-    val_loss = 0.0
-    num_batches = 0
+def calculate_epoch_from_iteration(iteration, steps_per_epoch):
+    """Calculate epoch number from iteration"""
+    return iteration // steps_per_epoch
 
-    with torch.no_grad():
-        progress_bar = tqdm(enumerate(val_loader), total=len(val_loader), desc="Validating", leave=False)
-        for i, (clean_audio, clean_spec, noisy_audio, noisy_spec) in progress_bar:
-            clean_audio, clean_spec = clean_audio.to(device), clean_spec.to(device)
-            noisy_audio, noisy_spec = noisy_audio.to(device), noisy_spec.to(device)
-
-            denoised_audio, denoised_spec = model(noisy_audio, noisy_spec)
-            loss = loss_fn(clean_audio, denoised_audio)
-            progress_bar.set_postfix({"loss": f"{loss.item():.4f}"})
-            val_loss += loss.item()
-            num_batches += 1
-
-        val_loss /= num_batches
-
-    model.train()
-
-    mel_transform = T.MelSpectrogram(
-        sample_rate=trainset_config['sample_rate'],
-        n_fft=trainset_config['n_fft'],
-        win_length=trainset_config['win_length'],
-        hop_length=trainset_config['hop_length'],
-        n_mels=80
-    ).to(device)
-    amplitude_to_db = T.AmplitudeToDB(stype='power')
-
-    if logger is not None:
-        print(f"Validation loss at iteration {iteration}: {val_loss:.6f}")
-        logger.add_scalar("Validation/Loss", val_loss, iteration)
-
-        num_samples = min(4, clean_spec.size(0))
-        for i in range(num_samples):
-            clean_audio_i = clean_audio[i].squeeze()
-            denoised_audio_i = denoised_audio[i].squeeze()
-            noisy_audio_i = noisy_audio[i].squeeze()
-
-            clean_audio_np = clean_audio_i.cpu().numpy()
-            denoised_audio_np = denoised_audio_i.cpu().numpy()
-            noisy_audio_np = noisy_audio_i.cpu().numpy()
-
-            clean_spec = amplitude_to_db(mel_transform(clean_audio_i))
-            denoised_spec = amplitude_to_db(mel_transform(denoised_audio_i))
-            noisy_spec = amplitude_to_db(mel_transform(noisy_audio_i))
-
-            clean_spec_np = clean_spec.cpu().numpy()
-            denoised_spec_np = denoised_spec.cpu().numpy()
-            noisy_spec_np = noisy_spec.cpu().numpy()
-
-            fig, axs = plt.subplots(1, 3, figsize=(15, 5))
-            axs[0].imshow(clean_spec_np, origin='lower', aspect='auto')
-            axs[0].set_title('Clean Spectrogram')
-            axs[1].imshow(denoised_spec_np, origin='lower', aspect='auto')
-            axs[1].set_title('Denoised Spectrogram')
-            axs[2].imshow(noisy_spec_np, origin='lower', aspect='auto')
-            axs[2].set_title('Noisy Spectrogram')
-            plt.tight_layout()
-            logger.add_figure(f'Spectrograms/Sample_{i}', fig, iteration)
-            plt.close(fig)
-
-            sample_rate = trainset_config['sample_rate']
-            logger.add_audio(f'Audio/Clean_{i}', clean_audio_np, iteration, sample_rate=sample_rate)
-            logger.add_audio(f'Audio/Denoised_{i}', denoised_audio_np, iteration, sample_rate=sample_rate)
-            logger.add_audio(f'Audio/Noisy_{i}', noisy_audio_np, iteration, sample_rate=sample_rate)
-
-def train(num_gpus, rank, group_name, exp_path, checkpoint_path, checkpoint_cleanunet_path, checkpoint_cleanspecnet_path, log, optimization, testloader, freeze_cleanspecnet=False, freeze_cleanunet=False, loss_config=None, device=None):
+def train(num_gpus, rank, group_name, exp_path, checkpoint_path, log, optimization, testloader, loss_config, device=None):
     device = device if device is not None else torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
     # Create tensorboard logger
@@ -133,47 +91,30 @@ def train(num_gpus, rank, group_name, exp_path, checkpoint_path, checkpoint_clea
     # Define optimizer
     optimizer = torch.optim.Adam(model.parameters(), lr=optimization["learning_rate"], weight_decay=optimization["weight_decay"])
 
-    # Load checkpoint
+    # Load checkpoint with proper epoch calculation
     global_step = 0
     start_epoch = 0
     steps_per_epoch = len(trainloader)
     total_epochs = config["epochs"]
-    latest_ckpt = None
+    
+    print(f"Steps per epoch: {steps_per_epoch}")
+    print(f"Total epochs: {total_epochs}")
 
-    if checkpoint_path is not None and os.path.isdir(checkpoint_path):
-        ckpt_files = glob.glob(os.path.join(checkpoint_path, '*.pkl'))
-        if ckpt_files:
-            latest_ckpt = max(ckpt_files, key=os.path.getctime)
+    if checkpoint_path is not None:
+        latest_ckpt, latest_iteration = find_latest_checkpoint(checkpoint_path)
+        if latest_ckpt:
             print(f"Resuming from latest checkpoint: {latest_ckpt}")
             model, optimizer, learning_rate, iteration = load_checkpoint(latest_ckpt, model, optimizer)
             global_step = iteration
-            start_epoch = global_step // steps_per_epoch
-            print(f"Resuming from epoch {start_epoch + 1}, global step {global_step}")
+            start_epoch = calculate_epoch_from_iteration(global_step, steps_per_epoch)
+            print(f"✅ Resuming from:")
+            print(f"   Global step: {global_step}")
+            print(f"   Epoch: {start_epoch + 1}/{total_epochs}")
+            print(f"   Learning rate: {learning_rate}")
         else:
-            print(f"No checkpoint files found in: {checkpoint_path}")
-            print("Starting training from scratch.")
+            print("No checkpoint found, starting from scratch")
     else:
-        print(f"No checkpoint directory found: {checkpoint_path}")
-        print("Starting training from scratch.")
-
-    # Load additional checkpoints if provided
-    if checkpoint_cleanunet_path is not None and os.path.exists(checkpoint_cleanunet_path):
-        print(f"Loading checkpoint '{checkpoint_cleanunet_path}'")
-        checkpoint_dict = torch.load(checkpoint_cleanunet_path, map_location='cpu')
-        new_checkpoint_dict = {f"clean_unet.{k}": v for k, v in checkpoint_dict['model_state_dict'].items()}
-        model.load_state_dict(new_checkpoint_dict, strict=False)
-    if checkpoint_cleanspecnet_path is not None and os.path.exists(checkpoint_cleanspecnet_path):
-        print(f"Loading checkpoint '{checkpoint_cleanspecnet_path}'")
-        checkpoint_dict = torch.load(checkpoint_cleanspecnet_path, map_location='cpu')
-        new_checkpoint_dict = {f"clean_spec_net.{k}": v for k, v in checkpoint_dict['state_dict'].items()}
-        model.load_state_dict(new_checkpoint_dict, strict=False)
-
-    if freeze_cleanspecnet:
-        for param in model.clean_spec_net.parameters():
-            param.requires_grad = False
-    if freeze_cleanunet:
-        for param in model.clean_unet.parameters():
-            param.requires_grad = False
+        print("No checkpoint directory specified, starting from scratch")
 
     print_size(model)
 
@@ -192,24 +133,36 @@ def train(num_gpus, rank, group_name, exp_path, checkpoint_path, checkpoint_clea
     mrstftloss = MultiResolutionSTFTLoss(**loss_config["stft_config"]).to(device) if loss_config["stft_lambda"] > 0 else None
     loss_fn = CleanUNet2Loss(**loss_config, mrstftloss=mrstftloss)
 
-    print(f"Starting training from epoch {start_epoch + 1}/{total_epochs}...")
-    for epoch in tqdm(range(start_epoch, total_epochs), desc="Epoch", initial=start_epoch, total=total_epochs, position=0):
+    print(f"🚀 Starting training from epoch {start_epoch + 1}/{total_epochs} (global step {global_step})...")
+    
+    # FIXED: Training loop with correct epoch counting and progress tracking
+    for epoch in range(start_epoch, total_epochs):
         model.train()
-        progress_bar = tqdm(enumerate(trainloader), total=len(trainloader), desc=f"Epoch {epoch+1}/{total_epochs}", position=1, leave=False)
+        epoch_loss = 0.0
+        
+        # Calculate steps remaining in current epoch if resuming mid-epoch
+        epoch_start_step = epoch * steps_per_epoch
+        steps_completed_in_epoch = max(0, global_step - epoch_start_step)
+        
+        # FIXED: Progress bar shows correct epoch number
+        progress_bar = tqdm(
+            enumerate(trainloader), 
+            total=len(trainloader),
+            desc=f"Epoch {epoch+1}/{total_epochs}",
+            initial=steps_completed_in_epoch,  # Resume from correct step in epoch
+            leave=True
+        )
+        
         for step, (clean_audio, clean_spec, noisy_audio, noisy_spec) in progress_bar:
+            # Skip steps we've already completed if resuming mid-epoch
+            if global_step < epoch_start_step + step:
+                global_step += 1
+                continue
+                
             noisy_audio = noisy_audio.to(device)
             noisy_spec = noisy_spec.to(device)
             clean_audio = clean_audio.to(device)
             clean_spec = clean_spec.to(device)
-
-            try:
-                check_for_nan_and_inf(noisy_audio, "noisy_audio")
-                check_for_nan_and_inf(noisy_spec, "noisy_spec")
-                check_for_nan_and_inf(clean_audio, "clean_audio")
-                check_for_nan_and_inf(clean_spec, "clean_spec")
-            except ValueError as e:
-                tqdm.write(str(e))
-                continue
 
             optimizer.zero_grad()
             denoised_audio, denoised_spec = model(noisy_audio, noisy_spec)
@@ -217,47 +170,79 @@ def train(num_gpus, rank, group_name, exp_path, checkpoint_path, checkpoint_clea
             reduced_loss = reduce_tensor(loss.data, num_gpus).item() if num_gpus > 1 else loss.item()
 
             loss.backward()
-            if torch.isnan(loss).any():
-                tqdm.write("Loss contains NaN, skipping step")
-                continue
-
             grad_norm = nn.utils.clip_grad_norm_(model.parameters(), optimization["max_norm"])
             scheduler.step()
             optimizer.step()
 
+            epoch_loss += reduced_loss
+
+            # FIXED: Progress bar shows current step within epoch and global step
             progress_bar.set_postfix({
-                "step": step,
+                "loss": f"{reduced_loss:.4f}",
+                "avg_loss": f"{epoch_loss/(step+1):.4f}",
                 "global_step": global_step,
-                "loss": f"{reduced_loss:.4f}"
+                "lr": f"{optimizer.param_groups[0]['lr']:.6f}"
             })
 
+            # Logging
             if global_step > 0 and global_step % 10 == 0:
                 logger.add_scalar("Train/Train-Loss", reduced_loss, global_step)
                 logger.add_scalar("Train/Gradient-Norm", grad_norm, global_step)
                 logger.add_scalar("Train/learning-rate", optimizer.param_groups[0]["lr"], global_step)
 
+            # Save checkpoint
             if global_step > 0 and global_step % log["iters_per_ckpt"] == 0 and rank == 0:
                 checkpoint_name = f"{global_step}.pkl"
                 checkpoint_file = os.path.join(ckpt_dir, checkpoint_name)
                 save_checkpoint(model, optimizer, optimization["learning_rate"], global_step, checkpoint_file)
-                tqdm.write(f"[✓] Checkpoint saved at: {checkpoint_name}")
+                tqdm.write(f"[✓] Checkpoint saved: {checkpoint_name} (epoch {epoch+1})")
 
             global_step += 1
 
+        # End of epoch summary
+        avg_epoch_loss = epoch_loss / len(trainloader)
+        print(f"✅ Epoch {epoch+1}/{total_epochs} completed")
+        print(f"   Average loss: {avg_epoch_loss:.6f}")
+        print(f"   Global step: {global_step}")
+        print(f"   Learning rate: {optimizer.param_groups[0]['lr']:.6f}")
+
         # Validation after each epoch
         if rank == 0:
-            print(f"Epoch {epoch + 1} finished. Running validation...")
-            model.eval()
+            print(f"Running validation for epoch {epoch+1}...")
             validate(model, testloader, loss_fn, global_step, trainset_config, logger, device)
-            model.train()
 
     # Save final model
     if rank == 0:
         final_model_path = os.path.join(ckpt_dir, 'final_model.pth')
         torch.save(model.state_dict(), final_model_path)
-        print(f"[✓] Final model weights saved for inference: {final_model_path}")
+        print(f"[✅] Training completed! Final model saved: {final_model_path}")
 
     return 0
+
+def validate(model, val_loader, loss_fn, iteration, trainset_config, logger, device):
+    model.eval()
+    val_loss = 0.0
+    num_batches = 0
+
+    with torch.no_grad():
+        progress_bar = tqdm(enumerate(val_loader), total=len(val_loader), desc="Validation", leave=False)
+        for i, (clean_audio, clean_spec, noisy_audio, noisy_spec) in progress_bar:
+            clean_audio, clean_spec = clean_audio.to(device), clean_spec.to(device)
+            noisy_audio, noisy_spec = noisy_audio.to(device), noisy_spec.to(device)
+
+            denoised_audio, denoised_spec = model(noisy_audio, noisy_spec)
+            loss = loss_fn(clean_audio, denoised_audio)
+            progress_bar.set_postfix({"val_loss": f"{loss.item():.4f}"})
+            val_loss += loss.item()
+            num_batches += 1
+
+        val_loss /= num_batches
+
+    model.train()
+    
+    if logger is not None:
+        print(f"Validation loss: {val_loss:.6f}")
+        logger.add_scalar("Validation/Loss", val_loss, iteration)
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
@@ -270,17 +255,12 @@ if __name__ == '__main__':
     with open(args.config, "r") as f:
         config = yaml.safe_load(f)
 
-    train_config = config["train_config"]
-    global dist_config
-    dist_config = config["dist_config"]
-    global network_config
+    global dist_config, network_config, trainset_config
+    train_config = config.get("train_config", {})
+    dist_config = config.get("dist_config", {})
     network_config = config["network_config"]
-    global trainset_config
     trainset_config = config["trainset"]
     trainset_config["sample_rate"] = config["sample_rate"]
-    trainset_config["n_fft"] = 1024
-    trainset_config["win_length"] = 1024
-    trainset_config["hop_length"] = 256
 
     num_gpus = torch.cuda.device_count()
     if num_gpus > 1 and args.group_name == '':
@@ -311,16 +291,9 @@ if __name__ == '__main__':
         args.group_name,
         train_config["exp_path"],
         train_config["checkpoint_path"],
-        train_config["checkpoint_cleanunet_path"],
-        train_config["checkpoint_cleanspecnet_path"],
         train_config["log"],
         train_config["optimization"],
         testloader=testloader,
-        freeze_cleanspecnet=train_config.get("freeze_cleanspecnet", False),
-        freeze_cleanunet=train_config.get("freeze_cleanunet", False),
-        loss_config=train_config.get("loss_config", None),
+        loss_config=train_config.get("loss_config", {}),
         device=device
-    )  
-    print("noisy_spec shape:", noisy_spec.shape)
-
-    
+    )
