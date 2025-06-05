@@ -1,4 +1,4 @@
-# models/cleanunet2/train_fixed.py - Fixed to properly resume training from correct epoch
+# models/cleanunet2/train.py - Fixed for .pth checkpoint files
 
 import argparse
 import yaml
@@ -24,35 +24,152 @@ random.seed(0)
 torch.manual_seed(0)
 np.random.seed(0)
 
-def find_latest_checkpoint(checkpoint_dir):
-    """Find the latest checkpoint file with proper epoch extraction"""
+def find_latest_checkpoint_pth(checkpoint_dir):
+    """Find the latest .pth checkpoint file with proper epoch extraction"""
     if not os.path.exists(checkpoint_dir):
+        print(f"Checkpoint directory does not exist: {checkpoint_dir}")
         return None, 0
     
-    checkpoint_files = glob.glob(os.path.join(checkpoint_dir, '*.pkl'))
+    print(f"🔍 Searching for checkpoints in: {checkpoint_dir}")
+    
+    # Look for different .pth naming patterns
+    patterns = [
+        "*.pth",
+        "*epoch*.pth", 
+        "*_epoch_*.pth",
+        "cleanunet2_epoch_*.pth",
+        "checkpoint_epoch_*.pth"
+    ]
+    
+    all_checkpoint_files = []
+    for pattern in patterns:
+        files = glob.glob(os.path.join(checkpoint_dir, pattern))
+        all_checkpoint_files.extend(files)
+    
+    # Remove duplicates
+    checkpoint_files = list(set(all_checkpoint_files))
+    
     if not checkpoint_files:
+        print(f"❌ No .pth checkpoint files found in: {checkpoint_dir}")
+        print("Available files:")
+        for f in os.listdir(checkpoint_dir):
+            print(f"   {f}")
         return None, 0
     
-    # Extract iteration numbers and find the latest
+    print(f"📂 Found {len(checkpoint_files)} checkpoint files:")
+    for f in sorted(checkpoint_files):
+        print(f"   {os.path.basename(f)}")
+    
+    # Extract epoch/iteration numbers and find the latest
     latest_file = None
-    latest_iteration = 0
+    latest_number = 0
     
     for f in checkpoint_files:
-        try:
-            filename = os.path.basename(f)
-            if filename.endswith('.pkl'):
-                iteration = int(filename[:-4])  # Remove .pkl extension
-                if iteration > latest_iteration:
-                    latest_iteration = iteration
-                    latest_file = f
-        except ValueError:
-            continue
+        filename = os.path.basename(f)
+        
+        # Try different patterns to extract numbers
+        number = 0
+        
+        # Pattern 1: cleanunet2_epoch_90.pth
+        if "epoch_" in filename:
+            try:
+                parts = filename.split("epoch_")
+                if len(parts) > 1:
+                    number_str = parts[1].split(".")[0]  # Remove .pth
+                    number = int(number_str)
+            except (ValueError, IndexError):
+                pass
+        
+        # Pattern 2: checkpoint_90.pth or 90.pth
+        elif filename.replace(".pth", "").isdigit():
+            try:
+                number = int(filename.replace(".pth", ""))
+            except ValueError:
+                pass
+                
+        # Pattern 3: model_90.pth, checkpoint_90.pth etc
+        else:
+            try:
+                # Extract last number from filename
+                import re
+                numbers = re.findall(r'\d+', filename)
+                if numbers:
+                    number = int(numbers[-1])  # Take the last number found
+            except (ValueError, IndexError):
+                pass
+        
+        if number > latest_number:
+            latest_number = number
+            latest_file = f
     
-    return latest_file, latest_iteration
+    if latest_file:
+        print(f"✅ Latest checkpoint: {os.path.basename(latest_file)} (epoch/iter: {latest_number})")
+    
+    return latest_file, latest_number
 
-def calculate_epoch_from_iteration(iteration, steps_per_epoch):
-    """Calculate epoch number from iteration"""
-    return iteration // steps_per_epoch
+def load_checkpoint_pth(checkpoint_path, model, optimizer):
+    """Load .pth checkpoint and return epoch/iteration info"""
+    print(f"📦 Loading checkpoint: {checkpoint_path}")
+    
+    try:
+        checkpoint = torch.load(checkpoint_path, map_location='cpu')
+        
+        # Handle different checkpoint formats
+        if isinstance(checkpoint, dict):
+            # Format 1: Full training checkpoint with optimizer
+            if 'model_state_dict' in checkpoint and 'optimizer_state_dict' in checkpoint:
+                model.load_state_dict(checkpoint['model_state_dict'])
+                optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+                
+                epoch = checkpoint.get('epoch', 0)
+                iteration = checkpoint.get('iteration', checkpoint.get('global_step', 0))
+                learning_rate = checkpoint.get('learning_rate', optimizer.param_groups[0]['lr'])
+                
+                print(f"   ✅ Loaded full checkpoint:")
+                print(f"      Epoch: {epoch}")
+                print(f"      Iteration/Global Step: {iteration}")
+                print(f"      Learning Rate: {learning_rate}")
+                
+                return model, optimizer, learning_rate, iteration, epoch
+            
+            # Format 2: Model state dict only
+            elif 'state_dict' in checkpoint:
+                model.load_state_dict(checkpoint['state_dict'])
+                
+                epoch = checkpoint.get('epoch', 0)
+                iteration = checkpoint.get('iteration', checkpoint.get('global_step', 0))
+                
+                print(f"   ⚠️ Loaded model state only (no optimizer state)")
+                print(f"      Epoch: {epoch}")
+                print(f"      Iteration: {iteration}")
+                
+                return model, optimizer, optimizer.param_groups[0]['lr'], iteration, epoch
+            
+            # Format 3: Direct state dict
+            else:
+                model.load_state_dict(checkpoint)
+                print(f"   ⚠️ Loaded direct state dict (no training info)")
+                
+                # Try to extract epoch from filename
+                filename = os.path.basename(checkpoint_path)
+                epoch = 0
+                if "epoch_" in filename:
+                    try:
+                        epoch = int(filename.split("epoch_")[1].split(".")[0])
+                    except (ValueError, IndexError):
+                        pass
+                
+                return model, optimizer, optimizer.param_groups[0]['lr'], 0, epoch
+        
+        else:
+            # Direct model state dict
+            model.load_state_dict(checkpoint)
+            print(f"   ⚠️ Loaded direct model weights")
+            return model, optimizer, optimizer.param_groups[0]['lr'], 0, 0
+            
+    except Exception as e:
+        print(f"❌ Error loading checkpoint: {e}")
+        raise
 
 def train(num_gpus, rank, group_name, exp_path, checkpoint_path, log, optimization, testloader, loss_config, device=None):
     device = device if device is not None else torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -91,30 +208,53 @@ def train(num_gpus, rank, group_name, exp_path, checkpoint_path, log, optimizati
     # Define optimizer
     optimizer = torch.optim.Adam(model.parameters(), lr=optimization["learning_rate"], weight_decay=optimization["weight_decay"])
 
-    # Load checkpoint with proper epoch calculation
+    # Load checkpoint with .pth support
     global_step = 0
     start_epoch = 0
     steps_per_epoch = len(trainloader)
     total_epochs = config["epochs"]
     
-    print(f"Steps per epoch: {steps_per_epoch}")
-    print(f"Total epochs: {total_epochs}")
+    print(f"📊 Training Info:")
+    print(f"   Steps per epoch: {steps_per_epoch}")
+    print(f"   Total epochs: {total_epochs}")
 
     if checkpoint_path is not None:
-        latest_ckpt, latest_iteration = find_latest_checkpoint(checkpoint_path)
+        # Check if it's a directory or specific file
+        if os.path.isdir(checkpoint_path):
+            latest_ckpt, latest_number = find_latest_checkpoint_pth(checkpoint_path)
+        elif os.path.isfile(checkpoint_path):
+            latest_ckpt = checkpoint_path
+            latest_number = 0
+        else:
+            print(f"❌ Checkpoint path does not exist: {checkpoint_path}")
+            latest_ckpt = None
+            
         if latest_ckpt:
-            print(f"Resuming from latest checkpoint: {latest_ckpt}")
-            model, optimizer, learning_rate, iteration = load_checkpoint(latest_ckpt, model, optimizer)
-            global_step = iteration
-            start_epoch = calculate_epoch_from_iteration(global_step, steps_per_epoch)
-            print(f"✅ Resuming from:")
-            print(f"   Global step: {global_step}")
-            print(f"   Epoch: {start_epoch + 1}/{total_epochs}")
-            print(f"   Learning rate: {learning_rate}")
+            try:
+                model, optimizer, learning_rate, iteration, epoch = load_checkpoint_pth(latest_ckpt, model, optimizer)
+                
+                # Use the most reliable information available
+                if iteration > 0:
+                    global_step = iteration
+                    start_epoch = global_step // steps_per_epoch
+                elif epoch > 0:
+                    start_epoch = epoch
+                    global_step = start_epoch * steps_per_epoch
+                
+                print(f"🚀 Resuming training:")
+                print(f"   Start epoch: {start_epoch + 1}/{total_epochs}")
+                print(f"   Global step: {global_step}")
+                print(f"   Learning rate: {optimizer.param_groups[0]['lr']}")
+                
+            except Exception as e:
+                print(f"❌ Failed to load checkpoint: {e}")
+                print("Starting from scratch...")
+                start_epoch = 0
+                global_step = 0
         else:
             print("No checkpoint found, starting from scratch")
     else:
-        print("No checkpoint directory specified, starting from scratch")
+        print("No checkpoint path specified, starting from scratch")
 
     print_size(model)
 
@@ -133,32 +273,22 @@ def train(num_gpus, rank, group_name, exp_path, checkpoint_path, log, optimizati
     mrstftloss = MultiResolutionSTFTLoss(**loss_config["stft_config"]).to(device) if loss_config["stft_lambda"] > 0 else None
     loss_fn = CleanUNet2Loss(**loss_config, mrstftloss=mrstftloss)
 
-    print(f"🚀 Starting training from epoch {start_epoch + 1}/{total_epochs} (global step {global_step})...")
+    print(f"🎯 Starting training from epoch {start_epoch + 1}/{total_epochs} (global step {global_step})...")
     
-    # FIXED: Training loop with correct epoch counting and progress tracking
+    # Training loop with correct epoch counting
     for epoch in range(start_epoch, total_epochs):
         model.train()
         epoch_loss = 0.0
         
-        # Calculate steps remaining in current epoch if resuming mid-epoch
-        epoch_start_step = epoch * steps_per_epoch
-        steps_completed_in_epoch = max(0, global_step - epoch_start_step)
-        
-        # FIXED: Progress bar shows correct epoch number
+        # Progress bar shows correct epoch number
         progress_bar = tqdm(
             enumerate(trainloader), 
             total=len(trainloader),
             desc=f"Epoch {epoch+1}/{total_epochs}",
-            initial=steps_completed_in_epoch,  # Resume from correct step in epoch
             leave=True
         )
         
         for step, (clean_audio, clean_spec, noisy_audio, noisy_spec) in progress_bar:
-            # Skip steps we've already completed if resuming mid-epoch
-            if global_step < epoch_start_step + step:
-                global_step += 1
-                continue
-                
             noisy_audio = noisy_audio.to(device)
             noisy_spec = noisy_spec.to(device)
             clean_audio = clean_audio.to(device)
@@ -176,7 +306,7 @@ def train(num_gpus, rank, group_name, exp_path, checkpoint_path, log, optimizati
 
             epoch_loss += reduced_loss
 
-            # FIXED: Progress bar shows current step within epoch and global step
+            # Progress bar shows current epoch and global step
             progress_bar.set_postfix({
                 "loss": f"{reduced_loss:.4f}",
                 "avg_loss": f"{epoch_loss/(step+1):.4f}",
@@ -190,12 +320,23 @@ def train(num_gpus, rank, group_name, exp_path, checkpoint_path, log, optimizati
                 logger.add_scalar("Train/Gradient-Norm", grad_norm, global_step)
                 logger.add_scalar("Train/learning-rate", optimizer.param_groups[0]["lr"], global_step)
 
-            # Save checkpoint
+            # Save checkpoint every N iterations
             if global_step > 0 and global_step % log["iters_per_ckpt"] == 0 and rank == 0:
-                checkpoint_name = f"{global_step}.pkl"
+                checkpoint_name = f"cleanunet2_epoch_{epoch+1}_step_{global_step}.pth"
                 checkpoint_file = os.path.join(ckpt_dir, checkpoint_name)
-                save_checkpoint(model, optimizer, optimization["learning_rate"], global_step, checkpoint_file)
-                tqdm.write(f"[✓] Checkpoint saved: {checkpoint_name} (epoch {epoch+1})")
+                
+                # Save in .pth format with full training state
+                torch.save({
+                    'epoch': epoch,
+                    'global_step': global_step,
+                    'model_state_dict': model.state_dict(),
+                    'optimizer_state_dict': optimizer.state_dict(),
+                    'learning_rate': optimizer.param_groups[0]['lr'],
+                    'loss': reduced_loss,
+                    'config': config
+                }, checkpoint_file)
+                
+                tqdm.write(f"[✅] Checkpoint saved: {checkpoint_name} (epoch {epoch+1})")
 
             global_step += 1
 
@@ -206,6 +347,20 @@ def train(num_gpus, rank, group_name, exp_path, checkpoint_path, log, optimizati
         print(f"   Global step: {global_step}")
         print(f"   Learning rate: {optimizer.param_groups[0]['lr']:.6f}")
 
+        # Save epoch checkpoint
+        if rank == 0:
+            epoch_checkpoint = os.path.join(ckpt_dir, f"cleanunet2_epoch_{epoch+1}.pth")
+            torch.save({
+                'epoch': epoch,
+                'global_step': global_step,
+                'model_state_dict': model.state_dict(),
+                'optimizer_state_dict': optimizer.state_dict(),
+                'learning_rate': optimizer.param_groups[0]['lr'],
+                'loss': avg_epoch_loss,
+                'config': config
+            }, epoch_checkpoint)
+            print(f"   💾 Epoch checkpoint: {os.path.basename(epoch_checkpoint)}")
+
         # Validation after each epoch
         if rank == 0:
             print(f"Running validation for epoch {epoch+1}...")
@@ -213,9 +368,16 @@ def train(num_gpus, rank, group_name, exp_path, checkpoint_path, log, optimizati
 
     # Save final model
     if rank == 0:
-        final_model_path = os.path.join(ckpt_dir, 'final_model.pth')
-        torch.save(model.state_dict(), final_model_path)
-        print(f"[✅] Training completed! Final model saved: {final_model_path}")
+        final_model_path = os.path.join(ckpt_dir, 'cleanunet2_final.pth')
+        torch.save({
+            'epoch': total_epochs-1,
+            'global_step': global_step,
+            'model_state_dict': model.state_dict(),
+            'optimizer_state_dict': optimizer.state_dict(),
+            'learning_rate': optimizer.param_groups[0]['lr'],
+            'config': config
+        }, final_model_path)
+        print(f"[🎉] Training completed! Final model saved: {final_model_path}")
 
     return 0
 
@@ -289,10 +451,10 @@ if __name__ == '__main__':
         num_gpus,
         args.rank,
         args.group_name,
-        train_config["exp_path"],
-        train_config["checkpoint_path"],
-        train_config["log"],
-        train_config["optimization"],
+        train_config.get("exp_path", "cleanunet2"),
+        train_config.get("checkpoint_path", None),
+        train_config.get("log", {}),
+        train_config.get("optimization", {}),
         testloader=testloader,
         loss_config=train_config.get("loss_config", {}),
         device=device
