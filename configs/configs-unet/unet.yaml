@@ -36,14 +36,10 @@ save_every: 5        # Save checkpoint every N epochs
 
 # Data paths - modify these to match your data structure
 trainset:
-  csv_path: "data/audio_data/training_pairs_16khz.csv"
+  csv_path: "data/training_pairs_16khz.csv"
 
 valset:
-  csv_path: "data/audio_data/evaluation_pairs_16khz.csv"
-
-# Optional test set
-testset:
-  csv_path: "data/audio_data/evaluation_pairs_16khz.csv"
+  csv_path: "data/evaluation_pairs_16khz.csv"
 
 # Data processing parameters
 max_length: 65536  # Maximum audio length in samples

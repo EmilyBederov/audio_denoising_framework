@@ -13,12 +13,14 @@ project_root = Path(__file__).resolve().parent
 
 from core.model_factory import ModelFactory
 from core.training_manager import TrainingManager
-from core.data_loader import get_dataloader
+# FIXED: Use original CleanUNet2 data loading instead of new framework
+from models.cleanunet2.dataset import load_cleanunet2_dataset
 
 def parse_args():
     parser = argparse.ArgumentParser(description='Audio Denoising Framework')
     parser.add_argument('--config', type=str, required=True, 
                         help='Path to config file')
+    # FIXED: Add missing --mode argument
     parser.add_argument('--mode', type=str, default='train', 
                         choices=['train', 'eval', 'inference'],
                         help='Running mode')
@@ -102,16 +104,60 @@ def main():
     
     # Run in the specified mode
     if args.mode == 'train':
-        # Get dataloaders
-        train_dataloader = get_dataloader(config, split='train')
-        val_dataloader = get_dataloader(config, split='val')
+        # FIXED: Use original CleanUNet2 data loading (same as SLURM training)
+        print("Creating dataloaders (original CleanUNet2 method)...")
+        
+        train_dataloader = load_cleanunet2_dataset(
+            csv_path=config['trainset']['csv_path'],
+            sample_rate=config['sample_rate'],
+            n_fft=1024,
+            hop_length=256,
+            win_length=1024,
+            power=1.0,
+            crop_length_sec=0.0,  # NO CROPPING - same as SLURM training!
+            batch_size=config['batch_size'],
+            num_workers=config['num_workers']
+        )
+        
+        val_dataloader = load_cleanunet2_dataset(
+            csv_path=config['valset']['csv_path'],
+            sample_rate=config['sample_rate'],
+            n_fft=1024,
+            hop_length=256,
+            win_length=1024,
+            power=1.0,
+            crop_length_sec=0.0,  # NO CROPPING - same as SLURM training!
+            batch_size=config['batch_size'],
+            num_workers=config['num_workers']
+        )
+        
+        # Show dataloader info
+        train_steps = len(train_dataloader)
+        val_steps = len(val_dataloader)
+        print(f"Training steps: {train_steps:,} (should be ~5,191)")
+        print(f"Validation steps: {val_steps:,} (should be ~577)")
+        
+        if abs(train_steps - 5191) < 100:
+            print("✅ SUCCESS! Training steps match SLURM training")
+        else:
+            print(f"⚠️ Warning: Training steps ({train_steps}) differ from SLURM (5,191)")
         
         # Train the model
         manager.train(train_dataloader, val_dataloader)
         
     elif args.mode == 'eval':
-        # Get dataloader
-        test_dataloader = get_dataloader(config, split='test')
+        # Use original data loading for evaluation too
+        test_dataloader = load_cleanunet2_dataset(
+            csv_path=config['valset']['csv_path'],
+            sample_rate=config['sample_rate'],
+            n_fft=1024,
+            hop_length=256,
+            win_length=1024,
+            power=1.0,
+            crop_length_sec=0.0,  # NO CROPPING
+            batch_size=config['batch_size'],
+            num_workers=config['num_workers']
+        )
         
         # Evaluate the model
         loss, metrics = manager.evaluate(test_dataloader)

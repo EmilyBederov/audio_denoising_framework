@@ -1,7 +1,7 @@
 # models/unet/unet_wrapper.py
 """
 UNet wrapper that integrates with the existing framework
-Key difference: UNet processes spectrograms only, not audio + spectrogram like CleanUNet2
+Fixed initialization order for PyTorch modules
 """
 import torch
 import numpy as np
@@ -19,10 +19,14 @@ class UNetWrapper(BaseModel):
         Initialize UNet wrapper to work with existing framework
         
         Args:
-            model_class: The UNet model class
+            model_class: The UNet model class (takes no parameters)
             config: Configuration dictionary
         """
-        # Initialize the base model
+        # IMPORTANT: Set empty network_config before calling super()
+        # because UNet takes no parameters
+        config['network_config'] = {}
+        
+        # Call parent constructor FIRST (required for PyTorch modules)
         super().__init__(model_class, config)
         
         # Store UNet-specific parameters from config
@@ -40,6 +44,18 @@ class UNetWrapper(BaseModel):
         
         print(f"✅ UNet wrapper initialized - processes spectrograms only")
         print(f"   Parameters: {sum(p.numel() for p in self.model.parameters()):,}")
+    
+    def _create_model(self, model_class):
+        """
+        Override BaseModel's _create_model to handle parameter-less UNet
+        
+        Args:
+            model_class: The UNet class
+            
+        Returns:
+            UNet model instance (no parameters passed)
+        """
+        return model_class()  # UNet takes no parameters
     
     def forward(self, *args, **kwargs):
         """
@@ -59,10 +75,6 @@ class UNetWrapper(BaseModel):
             return self.model(spectrogram)
         else:
             raise ValueError(f"UNet expects 1 or 2 inputs, got {len(args)}")
-    
-    def get_training_input_format(self):
-        """Return the input format this model expects for training"""
-        return "spectrogram_only"
     
     def prepare_training_batch(self, batch):
         """
