@@ -11,47 +11,31 @@ sys.path.insert(0, str(cleanunet2_dir))
 from core.base_model import BaseModel
 # Import the ORIGINAL CleanUNet2 (with proper paper defaults)
 from models.cleanunet2.models.cleanunet2 import CleanUNet2 as OriginalCleanUNet2
-# Import CleanSpecNet - you'll need to import this from the appropriate location
-from models.cleanunet2.models.cleanspecnet import CleanSpecNet  # Adjust path as needed
 
 class CleanUNet2Wrapper(BaseModel):
-    """Wrapper for CleanUNet2 model using the original implementation with two-stage support"""
+    """Wrapper for CleanUNet2 model using the original implementation"""
 
     def __init__(self, model_class, config):
-        # Don't call super().__init__ since we need custom initialization
-        self.config = config
-        self.device = None
+        # Use the original CleanUNet2 instead of the model_class parameter
+        super().__init__(OriginalCleanUNet2, config)
         
-        # Create both models for two-stage training
-        self._create_both_models()
+        # CRITICAL: Expose the internal components that the training manager expects
+        self._expose_model_components()
         
-    def _create_both_models(self):
-        """Create both CleanSpecNet and CleanUNet2 models"""
+    def _expose_model_components(self):
+        """Expose the internal components from the CleanUNet2 model"""
+        # The training manager expects these attributes to be available directly
+        self.clean_spec_net = self.model.clean_spec_net
+        self.clean_unet = self.model.clean_unet  
+        self.spectrogram_upsampler = self.model.spectrogram_upsampler
+        
+    def _create_model(self, model_class):
+        """Override BaseModel's _create_model to use original CleanUNet2 parameters"""
         model_params = self._extract_model_params(self.config)
-        
-        # Stage 1: CleanSpecNet
-        cleanspecnet_params = {k.replace('cleanspecnet_', ''): v 
-                             for k, v in model_params.items() 
-                             if k.startswith('cleanspecnet_')}
-        
-        # Stage 2: CleanUNet2  
-        cleanunet_params = {k.replace('cleanunet_', ''): v 
-                          for k, v in model_params.items() 
-                          if k.startswith('cleanunet_')}
-        
-        # Create the models
-        if not cleanspecnet_params:  # Use defaults if empty
-            self.clean_spec_net = CleanSpecNet()
-        else:
-            self.clean_spec_net = CleanSpecNet(**cleanspecnet_params)
-            
-        if not cleanunet_params:  # Use defaults if empty
-            self.model = OriginalCleanUNet2()
-        else:
-            self.model = OriginalCleanUNet2(**cleanunet_params)
+        return OriginalCleanUNet2(**model_params)
 
     def _extract_model_params(self, config):
-        """Extract and map parameters for both models"""
+        """Extract and map parameters for the original CleanUNet2"""
         net_cfg = config["network_config"]
         
         # Option 1: Use original defaults (recommended)
@@ -85,37 +69,37 @@ class CleanUNet2Wrapper(BaseModel):
             'cleanspecnet_dropout': net_cfg.get('cleanspecnet_dropout', 0.1),
         }
 
-    def forward(self, *args, stage="stage2", **kwargs):
-        """Forward pass with stage selection"""
-        if stage == "stage1":
-            return self.clean_spec_net(*args, **kwargs)
-        else:  # stage2 or default
-            return self.model(*args, **kwargs)
+    def forward(self, *args, **kwargs):
+        return self.model(*args, **kwargs)
 
     def to(self, device):
-        """Move both models to device"""
-        self.clean_spec_net = self.clean_spec_net.to(device)
-        self.model = self.model.to(device)
-        self.device = device
+        # Move the main model
+        super().to(device)
+        
+        # Re-expose components after moving to device (important!)
+        self._expose_model_components()
         return self
 
     def parameters(self):
-        """Return parameters from the main CleanUNet2 model"""
         return self.model.parameters()
 
     def train(self):
-        """Set both models to training mode"""
-        self.clean_spec_net.train()
         self.model.train()
+        # Also set individual components to train mode
+        self.clean_spec_net.train()
+        self.clean_unet.train()
+        self.spectrogram_upsampler.train()
 
     def eval(self):
-        """Set both models to evaluation mode"""
-        self.clean_spec_net.eval()
         self.model.eval()
+        # Also set individual components to eval mode
+        self.clean_spec_net.eval()
+        self.clean_unet.eval()
+        self.spectrogram_upsampler.eval()
         
-    def load_checkpoint(self, checkpoint_path, stage="stage2"):
-        """Enhanced checkpoint loading with stage selection"""
-        print(f"Loading checkpoint: {checkpoint_path} for {stage}")
+    def load_checkpoint(self, checkpoint_path):
+        """Enhanced checkpoint loading with prefix handling"""
+        print(f"Loading checkpoint: {checkpoint_path}")
         
         checkpoint_path = Path(checkpoint_path)
         if not checkpoint_path.exists():
@@ -143,23 +127,16 @@ class CleanUNet2Wrapper(BaseModel):
             else:
                 new_state_dict[key] = value
         
-        # Load into the appropriate model based on stage
-        target_model = self.clean_spec_net if stage == "stage1" else self.model
-        
         # Load with error handling
         try:
-            target_model.load_state_dict(new_state_dict, strict=True)
-            print(f" {stage} model loaded successfully with strict=True")
+            self.model.load_state_dict(new_state_dict, strict=True)
+            print(" Model loaded successfully with strict=True")
         except RuntimeError as e:
             print(f" Strict loading failed: {e}")
             print("Attempting to load with strict=False...")
-            target_model.load_state_dict(new_state_dict, strict=False)
-            print(f" {stage} model loaded with strict=False")
+            self.model.load_state_dict(new_state_dict, strict=False)
+            print(" Model loaded with strict=False")
             
-        print(f" Loaded checkpoint from {checkpoint_path} into {stage}")
-
-    def save_checkpoint(self, checkpoint_path, stage="stage2"):
-        """Save checkpoint for specific stage"""
-        target_model = self.clean_spec_net if stage == "stage1" else self.model
-        torch.save(target_model.state_dict(), checkpoint_path)
-        print(f"Saved {stage} checkpoint to {checkpoint_path}")
+        # Re-expose components after loading checkpoint
+        self._expose_model_components()
+        print(f" Loaded checkpoint from {checkpoint_path}")
