@@ -68,15 +68,15 @@ class TrainingManager:
                 stft_lambda=1.0,
                 mrstftloss=mrstft_loss
             )
-            print("✅ Using CleanUNet2 paper loss (L1 + Multi-resolution STFT)")
+            print(" Using CleanUNet2 paper loss (L1 + Multi-resolution STFT)")
         elif self.model_name == 'unet':
             # Use EXACT LSD loss from original UNet implementation
             from models.unet.loss import LSDLoss
             self.loss_fn = LSDLoss()
-            print("✅ Using LSD (Log-Spectral Distance) loss for UNet")
+            print(" Using LSD (Log-Spectral Distance) loss for UNet")
         else:
             self.loss_fn = torch.nn.L1Loss()
-            print("✅ Using default L1 loss")
+            print(" Using default L1 loss")
     
     def _setup_optimizer(self):
         """Setup optimizer based on config"""
@@ -105,7 +105,7 @@ class TrainingManager:
                 optimizer, 
                 lambda epoch: 10**(-lr_decay*epoch)
             )
-            print(f"✅ Using UNet optimizer: Adam(betas=(0.5, 0.9)), lr_decay={lr_decay}")
+            print(f" Using UNet optimizer: Adam(betas=(0.5, 0.9)), lr_decay={lr_decay}")
         else:
             optimizer = torch.optim.Adam(self.model.parameters(), lr=lr)
         
@@ -113,7 +113,7 @@ class TrainingManager:
     
     def load_checkpoint(self, checkpoint_path):
         """Enhanced checkpoint loading with epoch tracking AND proper weight loading"""
-        print(f"📦 Loading checkpoint: {checkpoint_path}")
+        print(f" Loading checkpoint: {checkpoint_path}")
         
         try:
             # First, load the checkpoint to extract epoch information
@@ -126,7 +126,7 @@ class TrainingManager:
                 self.global_step = checkpoint.get('global_step', checkpoint.get('iteration', 0))
                 
                 # Show what we found
-                print(f"📊 Found training state:")
+                print(f" Found training state:")
                 print(f"   Epoch: {self.current_epoch}")
                 print(f"   Global Step: {self.global_step}")
                 if 'train_loss' in checkpoint:
@@ -143,33 +143,33 @@ class TrainingManager:
                     try:
                         epoch_str = filename.split('epoch_')[1].split('.')[0]
                         self.current_epoch = int(epoch_str)
-                        print(f"✅ Extracted epoch {self.current_epoch} from filename")
+                        print(f" Extracted epoch {self.current_epoch} from filename")
                         self.loaded_from_checkpoint = True
                     except (ValueError, IndexError):
-                        print("⚠️ Could not extract epoch from filename")
+                        print(" Could not extract epoch from filename")
             
             # Now use the model wrapper's load_checkpoint method for proper weight loading
-            print("🔄 Loading model weights through wrapper...")
+            print(" Loading model weights through wrapper...")
             self.model.load_checkpoint(checkpoint_path)
             
             # Load optimizer state if available and we extracted training info
             if isinstance(checkpoint, dict) and 'optimizer_state_dict' in checkpoint:
                 try:
                     self.optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
-                    print("✅ Loaded optimizer state")
+                    print(" Loaded optimizer state")
                 except Exception as e:
-                    print(f"⚠️ Could not load optimizer state: {e}")
+                    print(f" Could not load optimizer state: {e}")
             
             # Update learning rate if available
             if isinstance(checkpoint, dict) and 'learning_rate' in checkpoint:
                 for param_group in self.optimizer.param_groups:
                     param_group['lr'] = checkpoint['learning_rate']
-                print(f"✅ Set learning rate to: {checkpoint['learning_rate']}")
+                print(f" Set learning rate to: {checkpoint['learning_rate']}")
             
-            print(f"✅ Checkpoint loaded successfully with epoch tracking!")
+            print(f" Checkpoint loaded successfully with epoch tracking!")
                 
         except Exception as e:
-            print(f"❌ Error loading checkpoint: {e}")
+            print(f" Error loading checkpoint: {e}")
             raise
     
     def _prepare_batch(self, batch):
@@ -337,17 +337,17 @@ class TrainingManager:
         # FIXED: Determine starting epoch correctly
         if self.loaded_from_checkpoint:
             start_epoch = self.current_epoch + 1  # Resume from next epoch
-            print(f"🔄 Resuming training from epoch {start_epoch}/{epochs}")
+            print(f" Resuming training from epoch {start_epoch}/{epochs}")
         else:
             start_epoch = 1
-            print(f"🚀 Starting training from epoch {start_epoch}/{epochs}")
+            print(f" Starting training from epoch {start_epoch}/{epochs}")
         
         print(f"Model: {self.model_name}")
         print(f"Input type: {self.model_input_type}")
         
         # FIXED: Training loop with correct epoch numbering
         for epoch in range(start_epoch, epochs + 1):
-            print(f"\n📅 Epoch {epoch}/{epochs}")
+            print(f"\n Epoch {epoch}/{epochs}")
             
             # Train one epoch - pass the current epoch number
             train_loss = self.train_epoch(train_dataloader, epoch)
@@ -362,7 +362,7 @@ class TrainingManager:
                     best_val_loss = val_loss
                     best_model_path = os.path.join(model_save_path, f"{self.model_name}_best.pth")
                     self.save_checkpoint(best_model_path, epoch, train_loss, val_loss)
-                    print(f"💾 New best model saved: {best_model_path}")
+                    print(f" New best model saved: {best_model_path}")
             else:
                 print(f"Epoch {epoch}: Train Loss = {train_loss:.4f}")
             
@@ -371,7 +371,7 @@ class TrainingManager:
                 checkpoint_path = os.path.join(model_save_path, f"{self.model_name}_epoch_{epoch}.pth")
                 self.save_checkpoint(checkpoint_path, epoch, train_loss, 
                                    val_loss if val_dataloader else None)
-                print(f"💾 Checkpoint saved: {checkpoint_path}")
+                print(f" Checkpoint saved: {checkpoint_path}")
             
             # Update current epoch
             self.current_epoch = epoch
@@ -380,7 +380,7 @@ class TrainingManager:
         final_model_path = os.path.join(model_save_path, f"{self.model_name}_final.pth")
         self.save_checkpoint(final_model_path, epochs, train_loss, 
                            val_loss if val_dataloader else None)
-        print(f"🎉 Training completed! Final model saved: {final_model_path}")
+        print(f" Training completed! Final model saved: {final_model_path}")
     
     def save_checkpoint(self, filepath, epoch, train_loss, val_loss=None):
         """Save model checkpoint with complete training state"""

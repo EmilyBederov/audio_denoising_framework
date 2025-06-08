@@ -6,10 +6,7 @@ import os
 from pathlib import Path
 import sys
 
-# Remove the CleanUNet2 path since it doesn't exist in your structure
 project_root = Path(__file__).resolve().parent
-# cleanunet2_path = project_root / "CleanUNet2"  # Removed this line
-# sys.path.append(str(cleanunet2_path))  # Removed this line
 
 from core.model_factory import ModelFactory
 from core.training_manager import TrainingManager
@@ -67,7 +64,6 @@ def main():
         return
     print("Config file exists")
     
-    # Load config
     print("Loading config...")
     try:
         with open(args.config, 'r') as f:
