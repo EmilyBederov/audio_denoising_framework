@@ -1,4 +1,7 @@
-# run.py
+
+# run_paper_exact.py
+# Script to run EXACT two-stage training as specified in paper
+
 import argparse
 import yaml
 import torch
@@ -6,126 +9,122 @@ import os
 from pathlib import Path
 import sys
 
+# Add project paths
 project_root = Path(__file__).resolve().parent
+sys.path.append(str(project_root))
 
-from core.model_factory import ModelFactory
-from core.training_manager import TrainingManager
+from core.training_manager_two_stage import TwoStageTrainingManager
 from core.data_loader import get_dataloader
 
 def parse_args():
-    parser = argparse.ArgumentParser(description='Audio Denoising Framework')
-    parser.add_argument('--config', type=str, required=True, 
+    parser = argparse.ArgumentParser(description='CleanUNet 2 - EXACT Paper Implementation')
+    parser.add_argument('--config', type=str, 
+                        default='configs/configs-cleanunet2/cleanunet2-paper-exact.yaml',
                         help='Path to config file')
-    parser.add_argument('--mode', type=str, default='train', 
-                        choices=['train', 'eval', 'inference'],
-                        help='Running mode')
-    parser.add_argument('--model', type=str, required=True,
-                        help='Model name (cleanunet2, unet, ftcrngan, etc.)')
-    parser.add_argument('--checkpoint', type=str, default=None,
-                        help='Path to checkpoint file')
-    parser.add_argument('--input', type=str, default=None,
-                        help='Input audio file for inference')
-    parser.add_argument('--output', type=str, default=None,
-                        help='Output audio file for inference')
+    parser.add_argument('--stage', type=str, default='both', 
+                        choices=['1', '2', 'both'],
+                        help='Training stage: 1=CleanSpecNet, 2=CleanUNet2, both=complete pipeline')
+    parser.add_argument('--stage1_checkpoint', type=str, default=None,
+                        help='Path to stage 1 checkpoint (for stage 2 training)')
     parser.add_argument('--device', type=str, default='cuda',
                         choices=['cuda', 'cpu'],
                         help='Device to use')
-    parser.add_argument('--batch_size', type=int, default=None,
-                        help='Override batch size from config')
     return parser.parse_args()
 
 def main():
-    print("Starting main function...")
+    print("🎯 CleanUNet 2 - EXACT Paper Implementation")
+    print("=" * 60)
     
-    # Parse arguments
-    print("Parsing arguments...")
     args = parse_args()
-    print(f"Arguments parsed: config={args.config}, model={args.model}, mode={args.mode}")
     
-    # ADD: Early device check
-    print("\n=== DEVICE SETUP ===")
-    print(f"CUDA available: {torch.cuda.is_available()}")
-    if torch.cuda.is_available():
-        print(f"CUDA devices: {torch.cuda.device_count()}")
-        print(f"Current device: {torch.cuda.current_device()}")
-        print(f"Device name: {torch.cuda.get_device_name()}")
-        print(f"CUDA version: {torch.version.cuda}")
-    
+    # Device setup
     device = torch.device(args.device if torch.cuda.is_available() and args.device == 'cuda' else 'cpu')
     print(f"Using device: {device}")
-    print("==================\n")
     
-    # Check if config file exists
-    print(f"Checking if config file exists: {args.config}")
+    if torch.cuda.is_available():
+        print(f"CUDA devices: {torch.cuda.device_count()}")
+        print(f"CUDA device name: {torch.cuda.get_device_name()}")
+    
+    # Load config
     if not os.path.exists(args.config):
-        print(f"Config file not found: {args.config}")
+        print(f"ERROR: Config file not found: {args.config}")
         return
-    print("Config file exists")
     
-    print("Loading config...")
+    with open(args.config, 'r') as f:
+        config = yaml.safe_load(f)
+    
+    print(f"Loaded config: {args.config}")
+    print(f"Training mode: {config.get('training_mode', 'standard')}")
+    
+    # Create two-stage training manager
+    manager = TwoStageTrainingManager("cleanunet2", config, device=str(device))
+    
+    # Prepare data loaders with EXACT batch sizes from paper
+    if args.stage in ['1', 'both']:
+        # Stage 1: batch_size=64 (CleanSpecNet)
+        config_stage1 = config.copy()
+        config_stage1['batch_size'] = config['stage1_cleanspecnet']['batch_size']  # 64
+        
+        train_dataloader_stage1 = get_dataloader(config_stage1, split='train')
+        val_dataloader_stage1 = get_dataloader(config_stage1, split='val')
+        
+        print(f"Stage 1 - CleanSpecNet data loaders created:")
+        print(f"  Batch size: {config_stage1['batch_size']}")
+        print(f"  Train batches: {len(train_dataloader_stage1)}")
+        print(f"  Val batches: {len(val_dataloader_stage1)}")
+    
+    if args.stage in ['2', 'both']:
+        # Stage 2: batch_size=32 (CleanUNet 2)
+        config_stage2 = config.copy()
+        config_stage2['batch_size'] = config['stage2_cleanunet2']['batch_size']  # 32
+        
+        train_dataloader_stage2 = get_dataloader(config_stage2, split='train')
+        val_dataloader_stage2 = get_dataloader(config_stage2, split='val')
+        
+        print(f"Stage 2 - CleanUNet 2 data loaders created:")
+        print(f"  Batch size: {config_stage2['batch_size']}")
+        print(f"  Train batches: {len(train_dataloader_stage2)}")
+        print(f"  Val batches: {len(val_dataloader_stage2)}")
+    
+    # Run training based on stage selection
     try:
-        with open(args.config, 'r') as f:
-            config = yaml.safe_load(f)
-        
-        if config is None:
-            print(f"Config file is empty or invalid: {args.config}")
-            return
+        if args.stage == '1':
+            print("\n🎯 Running STAGE 1 ONLY (CleanSpecNet training)")
+            manager.train_stage1_cleanspecnet(train_dataloader_stage1, val_dataloader_stage1)
             
-        print(f"Loaded config from: {args.config}")
-        print(f"Config keys: {list(config.keys())}")
+        elif args.stage == '2':
+            print("\n🎯 Running STAGE 2 ONLY (CleanUNet 2 training)")
+            if args.stage1_checkpoint:
+                # Load stage 1 checkpoint
+                print(f"Loading Stage 1 checkpoint: {args.stage1_checkpoint}")
+                checkpoint = torch.load(args.stage1_checkpoint, map_location=device)
+                manager.model.clean_spec_net.load_state_dict(checkpoint['model_state_dict'])
+                manager.cleanspecnet_trained = True
+            else:
+                print("ERROR: Stage 1 checkpoint required for Stage 2 training")
+                print("Use --stage1_checkpoint to specify the path")
+                return
+                
+            manager.train_stage2_cleanunet2(train_dataloader_stage2, val_dataloader_stage2)
+            
+        elif args.stage == 'both':
+            print("\n🎯 Running COMPLETE TWO-STAGE PIPELINE")
+            print("This will take a very long time (1M + 500K iterations)!")
+            
+            # Complete pipeline
+            final_model = manager.train_full_pipeline(
+                train_dataloader_stage1,  # Use stage 1 loader for both stages
+                val_dataloader_stage1
+            )
+            print(f"\n🎉 Complete training finished!")
+            print(f"Final model: {final_model}")
         
+    except KeyboardInterrupt:
+        print("\n⚠️ Training interrupted by user")
     except Exception as e:
-        print(f"Error loading config file {args.config}: {e}")
-        return
-    
-    # Override batch size if provided
-    if args.batch_size is not None:
-        print(f"Overriding batch_size: {config.get('batch_size', 'not set')} -> {args.batch_size}")
-        config['batch_size'] = args.batch_size
-    
-    # Add model name to config
-    print("Adding model name to config...")
-    config['model_name'] = args.model
-    
-    print("Creating training manager...")
-    # Create training manager - PASS device explicitly
-    manager = TrainingManager(args.model, config, device=str(device))
-    print("Training manager created successfully")
-    
-    # Load checkpoint if provided
-    if args.checkpoint:
-        manager.model.load_checkpoint(args.checkpoint)
-    
-    # Run in the specified mode
-    if args.mode == 'train':
-        # Get dataloaders
-        train_dataloader = get_dataloader(config, split='train')
-        val_dataloader = get_dataloader(config, split='val')
-        
-        # Train the model
-        manager.train(train_dataloader, val_dataloader)
-        
-    elif args.mode == 'eval':
-        # Get dataloader
-        test_dataloader = get_dataloader(config, split='test')
-        
-        # Evaluate the model
-        loss, metrics = manager.evaluate(test_dataloader)
-        
-        # Print results
-        print(f"Test loss: {loss:.4f}")
-        for metric_name, metric_value in metrics.items():
-            print(f"{metric_name}: {metric_value:.4f}")
-        
-    elif args.mode == 'inference':
-        # Check if input file is provided
-        if not args.input:
-            print("Error: Input audio file is required for inference mode")
-            return
-        
-        # Run inference
-        output_path = manager.inference(args.input, args.output)
-        print(f"Denoised audio saved to: {output_path}")
+        print(f"\n❌ Training failed: {e}")
+        import traceback
+        traceback.print_exc()
 
 if __name__ == "__main__":
     main()
