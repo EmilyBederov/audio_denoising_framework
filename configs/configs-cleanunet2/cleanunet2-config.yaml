@@ -33,7 +33,7 @@ network_config:
 
 # Two-stage training parameters
 stage1_cleanspecnet:
-  batch_size: 64                        # EXACT from paper
+  batch_size: 4                      # EXACT from paper
   iterations: 1000000                   # EXACT from paper (1M iterations)
   learning_rate: 0.0002                 # EXACT from paper (2e-4)
   optimizer: "adam"
