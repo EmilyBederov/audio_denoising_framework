@@ -108,7 +108,7 @@ class TwoStageTrainingManager:
         
         # EXACT optimizer from paper
         optimizer = torch.optim.Adam(
-            self.model.clean_spec_net.parameters(),
+            self.model.model.clean_spec_net.parameters(),  # Access through wrapper
             lr=2e-4,  # EXACT from paper
             betas=(0.9, 0.999)
         )
